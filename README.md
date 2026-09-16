@@ -1,122 +1,176 @@
-# ⚡ ArcPay — Agentic Micro-Payment Gateway on Arc Mainnet
+# ArcPay — Agentic Micro-Payment & Escrow Gateway on Arc Mainnet
 
-> **Native USDC Micro-Payments & Autonomous Escrow Gateway for AI Agents on Arc Mainnet (Chain ID 5042).**  
-> *Built for the [Arc Microgrants Program](https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq) (Circle).*
-
----
-
-## 🌐 Overview & Arc-Native Value
-
-**Arc** is Circle's flagship Layer 1 blockchain designed as an **Economic Operating System for the Internet**, featuring **native USDC gas**. 
-
-**ArcPay** is a high-performance, developer-friendly micro-payment protocol and interactive gateway designed specifically to exploit Arc's unique blockchain architecture:
-
-1. **Native USDC Gas & Value Transfer**:
-   - On standard EVM chains, paying with stablecoins requires an `ERC20.approve()` transaction followed by a `transferFrom()`, doubling gas fees and friction.
-   - On Arc Mainnet, USDC **is** the native gas token. ArcPay handles direct value transfers using native `msg.value` (USDC), saving over 50% gas and enabling instant zero-approval settlement.
-2. **Built-in 6-Decimals Precision**:
-   - Arc native gas uses 6 decimals ($1\text{ USDC} = 1,000,000\text{ units}$).
-   - ArcPay is calibrated for micro-transactions ($0.001 - $0.05 USDC) ideal for pay-per-call AI agents, automated data scraping, and high-frequency oracles.
-3. **Autonomous Multi-Agent Escrow**:
-   - Enables trustless micro-escrows for asynchronous AI agent pipelines with automated deadline refunds.
+> Native-USDC pay-per-call and autonomous escrow rails for AI agents, deployed on **Arc Mainnet
+> (Chain ID 5042)** — with correct handling of Arc's two USDC representations.
+> Built for the [Arc Microgrants program](https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq).
 
 ---
 
-## 🏗️ Architecture
+## The Arc detail this project is built around
 
-```
-                      +-----------------------------+
-                      |   Autonomous AI Agent       |
-                      |   (or Web3 User / Dapp)     |
-                      +--------------+--------------+
-                                     |
-               (1) Pay-per-Call /    |   (2) Lock Escrow /
-               Native USDC transfer  |   Query Result
-                                     v
-                 +-----------------------------------+
-                 |        ArcAgentGateway.sol        |
-                 |     (Arc Mainnet - Chain 5042)    |
-                 +-----------------+-----------------+
-                                   |
-           +-----------------------+-----------------------+
-           |                                               |
-           v                                               v
-+-----------------------+                       +-----------------------+
-|  Service Registry     |                       |  Autonomous Escrows   |
-|  - Instant routing    |                       |  - Time-locked tasks  |
-|  - Pull withdrawals   |                       |  - Non-custodial      |
-|  - Excess auto-refund |                       |  - Auto-refund logic  |
-+-----------------------+                       +-----------------------+
-```
+Arc uses USDC as its gas token. That single sentence hides an integration trap, and it is the
+reason this project exists in its current form.
 
----
+| | Native gas asset | USDC ERC-20 predeploy |
+|---|---|---|
+| Read via | `msg.value`, `address.balance`, `eth_getBalance` | `balanceOf` on `0x3600000000000000000000000000000000000000` |
+| Decimals | **18** | **6** |
+| Relationship | — | `floor(native / 1e12) == balanceOf` |
 
-## ⚡ Quick Start
+They are **two views of a single balance**, related by exactly `1e12`. Because USDC is a
+6-decimal token on every other chain, assuming 6 decimals for Arc's *native* asset is the natural
+mistake — and it overstates every balance by a factor of a trillion. A wallet holding 2 USDC
+renders as 2,000,000,000,000 USDC; a balance check passes on an account holding a millionth of
+what it needs.
 
-### 1. Verification of Network & Balance
-Check your connection to Arc Mainnet and check your wallet balance:
+ArcPay denominates everything in native units, converts explicitly through
+[`ArcDecimals`](contracts/src/ArcDecimals.sol), and ships the claim as an **executable assertion**
+rather than a sentence: `forge test` forks Arc Mainnet and checks the relationship against the
+live chain.
+
+### Verify it yourself in ten seconds
+
 ```bash
+ADDR=0x5ACCC00D7e4dB975CCbfC2801bC9447f37198797   # an Arc validator
+
+# native balance — 18 decimals
+curl -s https://rpc.mainnet.arc.io -H 'Content-Type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBalance\",\"params\":[\"$ADDR\",\"latest\"],\"id\":1}"
+
+# the same balance through the ERC-20 predeploy — 6 decimals
+curl -s https://rpc.mainnet.arc.io -H 'Content-Type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{\"to\":\"0x3600000000000000000000000000000000000000\",\"data\":\"0x70a08231000000000000000000000000${ADDR:2}\"},\"latest\"],\"id\":1}"
+
+# the predeploy's own decimals() — returns 0x06
+curl -s https://rpc.mainnet.arc.io -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"eth_call","params":[{"to":"0x3600000000000000000000000000000000000000","data":"0x313ce567"},"latest"],"id":1}'
+```
+
+Divide the first result by `1e12` and you get the second, exactly.
+
+> One wrinkle worth knowing if you fork Arc locally: `balanceOf` and `decimals` execute fine, but
+> `totalSupply()` routes through an Arc precompile at `0x1800000000000000000000000000000000000000`
+> that holds no bytecode, so a local EVM rejects it with `OpcodeNotFound`. The fork test reads that
+> one value over RPC instead.
+
+---
+
+## What ArcPay does
+
+**1. Pay-per-call agent paywall.** Providers register an agent service in an on-chain registry with
+a per-invocation fee. Callers pay with a single `payForService(uint256,bytes32)` transaction —
+`msg.value` carries the fee, no ERC-20 `approve` + `transferFrom` round-trip, because on Arc the
+stablecoin *is* the gas token. Overpayment is refunded in the same call.
+
+**2. Autonomous micro-escrow.** `createEscrow` locks native USDC against a task hash with a
+deadline. The worker agent settles with `completeEscrow`; if the deadline passes untouched, the
+payer recovers the full amount with `refundEscrow`.
+
+**3. Pull-payment settlement.** Earnings accrue to `claimableBalances` and are withdrawn by the
+earner. Nothing is ever pushed to an address that might revert, and the reentrancy guard covers
+every value-moving path.
+
+---
+
+## Architecture
+
+```
+          Autonomous agent / dapp / user
+                        │
+        pay-per-call    │    lock escrow
+        (msg.value)     │    (msg.value)
+                        ▼
+        ┌───────────────────────────────┐
+        │      ArcAgentGateway.sol      │
+        │   Arc Mainnet — chain 5042    │
+        └───────────────┬───────────────┘
+                        │ uses
+                        ▼
+        ┌───────────────────────────────┐
+        │       ArcDecimals.sol         │
+        │  native 18 dec ⇄ ERC-20 6 dec │
+        │        factor 1e12            │
+        └───────────────────────────────┘
+                        │ reads
+                        ▼
+        USDC ERC-20 predeploy 0x3600…0000
+```
+
+---
+
+## Quick start
+
+```bash
+npm install
+npm test            # 13 tests, 4 of them forked against live Arc Mainnet
 npm run check-balance
 ```
 
-### 2. Run Smart Contract Tests (Forge)
-All 4 core tests run in under 5ms:
+`npm test` requires network access on purpose: the fork tests assert against the live chain, and a
+claim about a live chain that can silently skip itself is not a proof.
+
+### Deploy
+
 ```bash
-npm test
+cp .env.example .env     # set PRIVATE_KEY
+npm run deploy           # builds, syncs the artifact, estimates gas, then deploys
+npm run seed             # registers demo services and makes one real paid call
 ```
-Tests pass:
-- `test_RegisterAndPayService()`
-- `test_PayServiceWithExcessRefund()`
-- `test_EscrowWorkflow()`
-- `test_EscrowRefundAfterDeadline()`
 
-### 3. Deploy to Arc Mainnet
-Copy `.env.example` to `.env` and paste your private key:
+`npm run deploy` prices the deployment before spending anything and refuses to broadcast unless
+the balance covers three times the estimate. Measured cost at the current gas price:
+**~1.6M gas ≈ 0.032 USDC**.
+
+### Frontend
+
 ```bash
-cp .env.example .env
-# Edit .env and set PRIVATE_KEY=...
+npm run dev              # http://localhost:5173
+npm run build
 ```
-Once your address holds a small amount of USDC on Arc Mainnet, run:
+
+The dashboard reads the service registry from chain (not a hardcoded list), sends real contract
+calls, and carries a **Decimals Proof** panel that reads any address's balance both ways and shows
+the `1e12` relationship live.
+
+### Checks
+
 ```bash
-npm run deploy
-```
-The script will:
-- Check your native USDC balance.
-- Deploy `ArcAgentGateway.sol` to Arc Mainnet.
-- Automatically save the deployed address to `frontend/src/contracts/deployedAddress.json`.
-- Output verified ArcScan links.
-
-### 4. Launch the Interactive Frontend
-```bash
-npm run dev
-```
-Open `http://localhost:5173` to test:
-- Live Arc Block Height and RPC latency tracker.
-- Pay-per-call agentic service execution demo.
-- Multi-agent micro-escrow creation.
-- 6-decimal USDC gas calculator vs Ethereum.
-
----
-
-## 🚀 1-Click Frontend Deployment (Vercel / Cloudflare)
-
-To deploy the frontend to Vercel in 30 seconds:
-```bash
-cd frontend
-npx vercel --prod
+npm run check-links      # every URL in the docs and source must answer
+npm run verify           # tests + links
 ```
 
 ---
 
-## 📜 Arc Mainnet Parameters
-- **Network Name**: Arc Mainnet
-- **Chain ID**: `5042`
-- **RPC URL**: `https://rpc.mainnet.arc.io`
-- **Native Currency**: USDC (6 decimals)
-- **Explorer**: [https://arcscan.app](https://arcscan.app)
-- **Documentation**: [https://docs.arc.network](https://docs.arc.network)
+## Arc Mainnet parameters
+
+| | |
+|---|---|
+| Network | Arc Mainnet |
+| Chain ID | `5042` (`0x13b2`) |
+| RPC | `https://rpc.mainnet.arc.io` (fallbacks: `rpc.drpc.mainnet.arc.io`, `rpc.quicknode.mainnet.arc.io`) |
+| Explorer | <https://explorer.arc.io> |
+| Native currency | USDC, **18 decimals** |
+| USDC ERC-20 | `0x3600000000000000000000000000000000000000`, **6 decimals** |
+| Docs | <https://docs.arc.network> |
 
 ---
 
-## 📄 License
-MIT © 2026 OtterArc Team
+## Repository layout
+
+| Path | What it is |
+|---|---|
+| `contracts/src/ArcAgentGateway.sol` | Registry, pay-per-call, escrow, pull withdrawals |
+| `contracts/src/ArcDecimals.sol` | The 18 ⇄ 6 conversion library and predeploy interface |
+| `contracts/test/ArcAgentGateway.t.sol` | Unit and fuzz tests |
+| `contracts/test/ArcMainnetFork.t.sol` | Assertions against live Arc Mainnet |
+| `scripts/arc-chain.mjs` | Single source of truth for chain parameters |
+| `scripts/deploy.mjs` | Gas-priced deployment with a balance guard |
+| `scripts/seed-services.mjs` | Brings the deployed registry to life on chain |
+| `scripts/check-links.mjs` | Fails the build on a dead URL |
+| `frontend/` | React + Tailwind dashboard |
+
+---
+
+## License
+
+MIT © 2026 OtterArc
