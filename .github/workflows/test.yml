@@ -1,0 +1,70 @@
+name: CI
+
+permissions: {}
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  contracts:
+    name: Contracts (forge)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - run: forge --version
+      - run: forge fmt --check
+      - run: forge build --sizes
+
+      # The fork tests reach https://rpc.mainnet.arc.io and assert the 18/6 decimal relationship
+      # against live Arc Mainnet. They are deliberately not skippable: a claim about a live chain
+      # that can quietly skip itself is not a proof, so a network outage fails CI rather than
+      # reporting a green suite that proved nothing.
+      - run: forge test -vv
+
+  frontend:
+    name: Frontend (vite)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  links:
+    name: No dead links
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run check-links

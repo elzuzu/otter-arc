@@ -1,16 +1,25 @@
-# React + Vite
+# ArcPay dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Tailwind interface for the ArcPay gateway on Arc Mainnet (chain 5042). Built with Vite.
 
-Currently, two official plugins are available:
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build
+npm run lint
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The app talks to Arc over JSON-RPC with viem, and reads the deployed contract address from
+`src/contracts/deployedAddress.json`, which `npm run deploy` writes at the repository root.
 
-## React Compiler
+Three tabs:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Pay-per-Call Registry** — reads `getServiceCount()` / `services(i)` from chain and encodes a
+  real `payForService(uint256,bytes32)` transaction. Not a hardcoded list.
+- **Autonomous Micro-Escrow** — signs a real `createEscrow(address,bytes32,uint256)`.
+- **Decimals Proof** — reads any address's balance both ways and shows that
+  `floor(native / 1e12) == balanceOf`, with the curl commands to reproduce it without the page.
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+`src/arc.js` holds the chain parameters. Note `nativeCurrency.decimals: 18` — that is the value a
+wallet uses to render a balance, and Arc's native gas asset really is 18 decimals even though USDC
+is a 6-decimal token everywhere else.

@@ -1,7 +1,11 @@
 # ArcPay — Agentic Micro-Payment & Escrow Gateway on Arc Mainnet
 
-> Native-USDC pay-per-call and autonomous escrow rails for AI agents, deployed on **Arc Mainnet
+> Native-USDC pay-per-call and autonomous escrow rails for AI agents, targeting **Arc Mainnet
 > (Chain ID 5042)** — with correct handling of Arc's two USDC representations.
+>
+> **Deployment status:** the contract address, once deployed, is written to
+> [`frontend/src/contracts/deployedAddress.json`](frontend/src/contracts/deployedAddress.json) and
+> linked here. While that file is empty, nothing is deployed yet.
 > Built for the [Arc Microgrants program](https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq).
 
 ---
@@ -62,13 +66,18 @@ a per-invocation fee. Callers pay with a single `payForService(uint256,bytes32)`
 `msg.value` carries the fee, no ERC-20 `approve` + `transferFrom` round-trip, because on Arc the
 stablecoin *is* the gas token. Overpayment is refunded in the same call.
 
-**2. Autonomous micro-escrow.** `createEscrow` locks native USDC against a task hash with a
-deadline. The worker agent settles with `completeEscrow`; if the deadline passes untouched, the
-payer recovers the full amount with `refundEscrow`.
+**2. Autonomous micro-escrow.** `createEscrow` locks native USDC against a task hash and a
+deadline. The worker publishes its result with `submitResult` before the deadline, which pays
+nothing and opens a one-hour review window; the payer can `releaseEscrow` at any point, and if the
+payer goes silent the worker can `claimSubmittedEscrow` once the window closes. If nothing is ever
+delivered, the payer calls `refundEscrow` after the deadline. Neither side can take the funds
+unilaterally. Arbitrating a genuinely *disputed* result needs a third party and is out of scope.
 
-**3. Pull-payment settlement.** Earnings accrue to `claimableBalances` and are withdrawn by the
-earner. Nothing is ever pushed to an address that might revert, and the reentrancy guard covers
-every value-moving path.
+**3. Pull-payment settlement.** Every credit — fees, released escrows, refunds, and overpayment on
+a service call — lands in `claimableBalances` and is withdrawn by the earner. The contract never
+pushes value to an address that might revert, so a contract counterparty with no `receive()` can
+still be paid. `withdraw()` is the single exit, and the reentrancy guard covers every value-moving
+path. There is deliberately no `receive()`: stray value would be unrecoverable, so it reverts.
 
 ---
 
@@ -128,6 +137,10 @@ npm run dev              # http://localhost:5173
 npm run build
 ```
 
+The dashboard is published to GitHub Pages at <https://elzuzu.github.io/otter-arc/> by
+`.github/workflows/deploy-pages.yml` on every push to `main`. Vite's `base` defaults to
+`/otter-arc/` for that sub-path; set `BASE_PATH=/` to build for a root-hosted deploy.
+
 The dashboard reads the service registry from chain (not a hardcoded list), sends real contract
 calls, and carries a **Decimals Proof** panel that reads any address's balance both ways and shows
 the `1e12` relationship live.
@@ -135,7 +148,7 @@ the `1e12` relationship live.
 ### Checks
 
 ```bash
-npm run check-links      # every URL in the docs and source must answer
+npm run check-links      # the URLs a reader follows must answer (see the file for scope)
 npm run verify           # tests + links
 ```
 

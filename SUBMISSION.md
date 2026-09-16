@@ -5,8 +5,13 @@ Portal: **DoraHacks** — <https://dorahacks.io/hackathon/arc-microgrants>
 <https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq> links here; its own
 "Register" button is for the event, not the grant submission).
 
-Deadline: **14 October 2026, 23:59 ET.** Rolling review, all decisions by 21 October.
-**One submission per project — there is no second attempt.**
+Deadline: **14 October 2026, 23:59 ET** (DoraHacks shows the window closing 2026/10/15 03:59).
+
+Two rules below are stated on the Arc House event page rather than on DoraHacks, so they are
+quoted verbatim from <https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq>:
+"Reviews run on a rolling basis and every decision is issued by October 21." and
+"One submission per project. Teams can submit more than one distinct project."
+**There is therefore no second attempt on this project.**
 
 Everything below is written to be pasted into the DoraHacks BUIDL form.
 
@@ -39,7 +44,7 @@ Solidity 0.8.33 · Foundry · viem · React 19 · Tailwind 4 · Vite
 ## Live deployment on Arc mainnet
 
 ```
-App:      <FILL AFTER VERCEL DEPLOY>
+App:      https://elzuzu.github.io/otter-arc/
 Contract: <FILL AFTER npm run deploy>
 Explorer: https://explorer.arc.io/address/<CONTRACT>
 ```
@@ -47,7 +52,7 @@ Explorer: https://explorer.arc.io/address/<CONTRACT>
 ## Public repository
 
 ```
-<FILL AFTER gh repo create>
+https://github.com/elzuzu/otter-arc
 ```
 
 ## Public builder profile
@@ -59,7 +64,7 @@ https://github.com/elzuzu
 ## Payout wallet (USDC on Arc)
 
 ```
-<FILL WITH THE DEDICATED ARC WALLET ADDRESS>
+0xd3fb4e6479749100D876584e7F5c5cC1EEAE51A5
 ```
 
 ---
@@ -73,9 +78,13 @@ On a normal EVM chain, paying a stablecoin means `approve` followed by `transfer
 transactions, two gas payments, and an allowance left sitting on chain. On Arc, USDC **is** the gas
 token, so a payment is just `msg.value`. ArcPay is built around that: an on-chain registry where a
 provider lists an agent service and its per-call fee, a single `payForService(uint256,bytes32)`
-call that settles it with no approval round-trip and refunds any overpayment, and a time-locked
-`createEscrow` / `completeEscrow` / `refundEscrow` cycle for asynchronous multi-step agent work.
-Earnings accrue to a claimable balance and are pulled by the earner, never pushed.
+call that settles it with no approval round-trip and credits any overpayment back, and an
+optimistic escrow for asynchronous multi-step agent work: the worker publishes a result before the
+deadline, which opens a one-hour review window; the payer can release at any time; a silent payer
+cannot strand delivered work, and a worker who never delivers cannot block the refund. Neither side
+can take the funds unilaterally. Every credit — fees, released escrows, refunds, overpayment —
+accrues to a claimable balance and is pulled by the earner, so the contract never pushes value to
+an address that might revert.
 
 The project also solves a problem that will bite most day-one Arc integrations, and this is the
 part we think is most useful to the ecosystem.
@@ -88,8 +97,9 @@ ERC-20 predeploy at `0x3600000000000000000000000000000000000000` reports the sam
 Because USDC is a 6-decimal token everywhere else, assuming 6 decimals for Arc's *native* asset is
 the natural mistake — and it overstates every balance by a factor of a trillion. A wallet holding
 2 USDC renders as 2,000,000,000,000 USDC. A "do I have enough to deploy" check passes on an account
-holding a millionth of what it needs. We know because our own first version shipped that bug
-end to end, in the contract, the scripts and the UI.
+holding a millionth of what it needs. It is a silent failure: nothing reverts, the numbers are
+simply wrong, and both the AI-written guides and the chain registries disagree with each other on
+this point.
 
 ArcPay denominates every amount in native units, converts explicitly through a small `ArcDecimals`
 library, and — rather than asserting the relationship in prose — ships it as an executable test:
@@ -117,7 +127,7 @@ its balance both ways, see the `1e12` factor and the truncated remainder.
 ## How to verify the claims
 
 ```bash
-npm test          # 13 tests; 4 fork Arc mainnet and assert against the live chain
+npm test          # 21 tests; 4 fork Arc mainnet and assert against the live chain
 npm run check-balance   # prints any address's balance in both representations
 npm run check-links     # every URL in the docs and source must resolve
 ```
@@ -126,7 +136,8 @@ Or with nothing but curl — see "Verify it yourself in ten seconds" in the READ
 
 ## What we would do next
 
-Batch settlement so an agent can pay many providers in one transaction; a session-key flow so an
-autonomous agent can spend under a bounded allowance without holding the owner key; and publishing
-`ArcDecimals` as a standalone package, since every Arc integration needs it and getting it wrong is
-silent.
+On-chain arbitration for disputed escrow results, which the current optimistic model deliberately
+leaves out; batch settlement so an agent can pay many providers in one transaction; a session-key
+flow so an autonomous agent can spend under a bounded allowance without holding the owner key; and
+publishing `ArcDecimals` as a standalone package, since every Arc integration needs it and getting
+it wrong is silent.

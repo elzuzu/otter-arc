@@ -50,7 +50,9 @@ contract ArcMainnetForkTest is Test {
         uint256 erc20 = IArcUsdc(USDC_ERC20).balanceOf(SAMPLE);
 
         assertGt(native, 0, "sample account must hold a balance on the forked block");
-        assertEq(native / 1e12, erc20, "floor(native / 1e12) == balanceOf");
+        // Uses the library's own SCALE, so a wrong constant in shipped code fails here too.
+        assertEq(native / ArcDecimals.SCALE, erc20, "floor(native / SCALE) == balanceOf");
+        assertEq(ArcDecimals.toErc20Units(native), erc20, "the library agrees with the chain");
 
         console.log("native (18 dec):", native);
         console.log("erc20  ( 6 dec):", erc20);
@@ -67,7 +69,11 @@ contract ArcMainnetForkTest is Test {
 
         // Exact reconstruction: the native balance is the ERC-20 value scaled up by 1e12 plus the
         // sub-micro-USDC remainder. This identity holds only because native carries 18 decimals.
-        assertEq(erc20 * 1e12 + (native % 1e12), native, "native == erc20 * 1e12 + remainder");
+        assertEq(
+            ArcDecimals.toNativeUnits(erc20) + ArcDecimals.truncationRemainder(native),
+            native,
+            "native == toNativeUnits(erc20) + remainder"
+        );
 
         // And the misreading is not merely wrong, it is impossible: interpreting the raw native
         // balance as a 6-decimal USDC amount credits this single account with more USDC than
@@ -92,22 +98,22 @@ contract ArcMainnetForkTest is Test {
      *      bytecode and cannot be executed by a local EVM. `vm.rpc` performs a real `eth_call`.
      */
     function _liveTotalSupply() internal returns (uint256) {
-        bytes memory raw = vm.rpc(
-            "eth_call",
-            '[{"to":"0x3600000000000000000000000000000000000000","data":"0x18160ddd"},"latest"]'
-        );
+        bytes memory raw =
+            vm.rpc("eth_call", '[{"to":"0x3600000000000000000000000000000000000000","data":"0x18160ddd"},"latest"]');
         return abi.decode(raw, (uint256));
     }
 
     /// @notice The deployed contract's own view agrees with the live chain.
     function testFork_GatewayViewMatchesChain() public {
         ArcAgentGateway gateway = new ArcAgentGateway();
-        (uint256 native, uint256 erc20, uint256 remainder) = gateway.nativeBalanceAsErc20(SAMPLE);
+        (uint256 native, uint256 erc20, uint256 remainder, bool available) = gateway.nativeBalanceAsErc20(SAMPLE);
+
+        assertTrue(available, "the predeploy must exist on an Arc fork");
 
         assertEq(native, SAMPLE.balance);
         assertEq(erc20, IArcUsdc(USDC_ERC20).balanceOf(SAMPLE));
-        assertEq(native / 1e12, erc20);
-        assertEq(remainder, native % 1e12);
-        assertLt(remainder, 1e12);
+        assertEq(native / ArcDecimals.SCALE, erc20);
+        assertEq(remainder, ArcDecimals.truncationRemainder(native));
+        assertLt(remainder, ArcDecimals.SCALE);
     }
 }

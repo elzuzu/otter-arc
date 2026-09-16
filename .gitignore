@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 
 # Environment files
 .env
@@ -19,3 +18,6 @@ frontend/node_modules/
 .DS_Store
 .vscode/
 .idea/
+
+# Local working state: references private paths and personal wallet balances.
+tasks/

@@ -36,6 +36,9 @@ import {
 const abi = contractArtifact.abi;
 const contractAddress = deployedAddressInfo?.contractAddress || '';
 
+/** Mirrors ArcAgentGateway.REVIEW_WINDOW; shown in the escrow copy. */
+const REVIEW_WINDOW_LABEL = '1 hour';
+
 /** A funded Arc validator, used to demonstrate the decimal relationship before you connect. */
 const SAMPLE_ADDRESS = '0x5ACCC00D7e4dB975CCbfC2801bC9447f37198797';
 
@@ -499,8 +502,11 @@ export default function App() {
                 <ShieldCheck className="w-5 h-5 text-blue-400" /> Create a multi-agent task escrow
               </h2>
               <p className="text-xs text-slate-400 mt-1 mb-6">
-                Locks native USDC in <code className="text-blue-400">createEscrow</code> until the worker agent delivers,
-                with an automatic refund path once the deadline passes. This signs a real transaction.
+                Locks native USDC in <code className="text-blue-400">createEscrow</code>. The worker publishes a result
+                before the deadline, which opens a {REVIEW_WINDOW_LABEL} window for you to release early; if you stay
+                silent the worker can claim once it closes, and if nothing is ever delivered you refund after the
+                deadline. Optimistic, with no on-chain arbiter — a genuinely disputed result is out of scope here.
+                This signs a real transaction.
               </p>
               <div className="space-y-4">
                 <div>
@@ -549,8 +555,9 @@ export default function App() {
               <div className="space-y-4 text-xs text-slate-300">
                 {[
                   ['Locked', <>USDC sits in <code>ArcAgentGateway</code>. An <code>escrowId</code> is emitted by <code>EscrowCreated</code>.</>],
-                  ['Settled', <>The worker calls <code>completeEscrow</code> with its result. Funds move to the worker&apos;s claimable balance — pull payment, never a push.</>],
-                  ['Refunded', <>If the deadline passes untouched, the payer calls <code>refundEscrow</code> and recovers the full amount.</>],
+                  ['Delivered', <>Before the deadline, the worker calls <code>submitResult</code>. This pays nothing — it publishes the result and opens a {REVIEW_WINDOW_LABEL} review window.</>],
+                  ['Released', <>The payer calls <code>releaseEscrow</code> whenever satisfied. If the payer stays silent, the worker can call <code>claimSubmittedEscrow</code> once the window closes, so delivered work cannot be stranded.</>],
+                  ['Refunded', <>If the deadline passes with no result submitted, the payer calls <code>refundEscrow</code>. Both paths credit a claimable balance — nothing is ever pushed to an address that might revert.</>],
                 ].map(([title, body], i) => (
                   <div className="flex gap-3 items-start" key={title}>
                     <div className="w-6 h-6 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 font-mono">{i + 1}</div>

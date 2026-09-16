@@ -1,8 +1,12 @@
 /**
- * Fetch every external URL referenced in the docs and source, and fail on anything that does not
- * answer. This exists because the project shipped nine references to `arcscan.app`, a domain that
- * does not resolve at all — the kind of thing a reviewer discovers by clicking, and nobody
- * discovers by reading.
+ * Fetch the external URLs referenced in the files listed below and fail on anything that does not
+ * answer. This exists because the project shipped 11 references to `arcscan.app` across 5 files —
+ * a domain that does not resolve at all. That is the kind of thing a reviewer discovers by
+ * clicking and nobody discovers by reading.
+ *
+ * Scope is deliberately explicit rather than a repo-wide crawl: FILES below is the set that a
+ * reader actually follows links from, and SKIP exempts placeholders and the illustrative agent
+ * endpoints that are sample data rather than live services.
  */
 import fs from 'fs';
 import path from 'path';
@@ -16,6 +20,10 @@ const FILES = [
   'frontend/src/App.jsx',
   'contracts/src/ArcDecimals.sol',
   'contracts/src/ArcAgentGateway.sol',
+  'frontend/src/arc.js',
+  'contracts/test/ArcMainnetFork.t.sol',
+  'contracts/README.md',
+  'frontend/README.md',
 ];
 
 /** Hosts we deliberately never probe: placeholders, or endpoints that reject bare GETs. */
