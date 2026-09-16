@@ -132,10 +132,15 @@ its balance both ways, see the `1e12` factor and the truncated remainder.
 ## How to verify the claims
 
 ```bash
-npm test          # 26 tests; 4 fork Arc mainnet and assert against the live chain
-npm run check-balance   # prints any address's balance in both representations
-npm run check-links     # every URL in the docs and source must resolve
+npm test                  # 26 tests; 4 fork Arc mainnet and assert against the live chain
+npm run check-balance     # prints any address's balance in both representations
+npm run verify-deployment # reads the deployment back off-chain and checks every claim above
+npm run check-links       # the URLs in the docs and source must resolve
 ```
+
+`verify-deployment` is the short version of this whole submission: point it at the contract and it
+re-derives the decimal relationship, the registry activity and the escrow's safety surface from
+the chain, and exits non-zero if any of it is untrue.
 
 Or with nothing but curl — see "Verify it yourself in ten seconds" in the README.
 

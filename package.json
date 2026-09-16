@@ -13,7 +13,8 @@
     "check-balance": "node scripts/check-balance.mjs",
     "check-links": "node scripts/check-links.mjs",
     "verify": "npm test && npm run check-links",
-    "publish-site": "bash scripts/publish-site.sh"
+    "publish-site": "bash scripts/publish-site.sh",
+    "verify-deployment": "node scripts/verify-deployment.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

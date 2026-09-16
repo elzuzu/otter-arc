@@ -181,9 +181,17 @@ the `1e12` relationship live.
 ### Checks
 
 ```bash
-npm run check-links      # the URLs a reader follows must answer (see the file for scope)
-npm run verify           # tests + links
+npm run check-links        # the URLs a reader follows must answer (see the file for scope)
+npm run verify             # tests + links
+npm run verify-deployment  # read the deployment back off the chain and check it
 ```
+
+`verify-deployment` needs nothing but the contract address. It reads the denomination constants
+out of the deployed bytecode, compares the contract's own `nativeBalanceAsErc20` against
+`eth_getBalance` and the predeploy's `balanceOf` for a real account, confirms the registry has
+been used rather than merely deployed, and checks that the escrow's safety entry points are
+actually present. It exits non-zero on any failure — verified by pointing it at an address with no
+code, and at a deployed-but-unseeded contract.
 
 ---
 
@@ -213,6 +221,8 @@ npm run verify           # tests + links
 | `scripts/deploy.mjs` | Gas-priced deployment with a balance guard |
 | `scripts/seed-services.mjs` | Brings the deployed registry to life on chain |
 | `scripts/check-links.mjs` | Fails the build on a dead URL |
+| `scripts/verify-deployment.mjs` | Reads a deployment back off-chain and checks it |
+| `scripts/publish-site.sh` | Builds the dashboard and publishes it to `gh-pages` |
 | `frontend/` | React + Tailwind dashboard |
 
 ---
