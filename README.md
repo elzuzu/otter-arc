@@ -68,19 +68,28 @@ on Arc the stablecoin *is* the gas token. The third argument is the highest fee 
 so a provider cannot raise the price in front of the transaction and keep the whole `msg.value`.
 Overpayment is credited back to the caller's claimable balance.
 
-**2. Autonomous micro-escrow.** `createEscrow` locks native USDC against a task hash and a
-deadline. The worker publishes a non-empty result with `submitResult`, strictly before the
-deadline; this pays nothing. The payer then has until `max(deadline, submittedAt + 1 hour)` to
-either `releaseEscrow` or `rejectResult` — a rejection returns the escrow to pending, so the worker
-can try again while the deadline allows. If the payer says nothing, the worker takes it with
-`claimSubmittedEscrow`: silence pays the worker. If nothing acceptable is ever delivered, the payer
-calls `refundEscrow` after the deadline, and a submission the worker never collects becomes
-refundable after a further 30 days, so no escrow can be stranded.
+**2. Autonomous micro-escrow.** `createEscrow` locks native USDC against a task hash, a deadline,
+and a **number of rejections the payer reserves** — fixed at creation and readable on chain, so the
+worker knows the terms before starting. The worker publishes a non-empty result with `submitResult`
+strictly before the deadline; this pays nothing. The payer may then `releaseEscrow`, or
+`rejectResult` while they still have budget — and **a rejection pushes the deadline out by at least
+one hour**, so "try again" is a real option rather than a formality. Once the budget is spent, the
+next delivery stands. If the payer says nothing, the worker takes it with `claimSubmittedEscrow`.
+If nothing acceptable is ever delivered, the payer refunds after the deadline; a submission the
+worker never collects becomes refundable after a further 30 days, so no escrow is ever stranded.
 
-The rule is therefore explicit: **the payer decides before the deadline, and silence pays the
-worker.** A worker cannot take the money for work the payer refuses, and a payer cannot take
-delivery and then stay quiet. What this does *not* do is adjudicate a genuine disagreement — that
-needs a third party, and is deliberately out of scope.
+Two properties do the work here, and both were learned the hard way — earlier versions of this
+contract handed a complete unilateral take first to the worker, then to the payer:
+
+- **A rejection must extend the deadline.** Otherwise the payer can reject inside the window that
+  opens past the deadline, where `submitResult` is already closed, then immediately refund — while
+  keeping the result, which is permanently public in the submission calldata.
+- **The right of refusal must be finite.** Extending the deadline on every rejection with no budget
+  just moves the problem: the payer refuses forever and wins by outspending the worker in gas.
+
+What this still does *not* do is adjudicate a genuine disagreement. That needs a third party and is
+deliberately out of scope; the design bounds the damage either side can do rather than pretending
+to settle who is right.
 
 **3. Pull-payment settlement.** Every credit — fees, released escrows, refunds, and overpayment on
 a service call — lands in `claimableBalances` and is withdrawn by the earner. The contract never
@@ -120,7 +129,7 @@ path. There is deliberately no `receive()`: stray value would be unrecoverable, 
 
 ```bash
 npm install
-npm test            # 26 tests, 4 of them forked against live Arc Mainnet
+npm test            # 30 tests, 4 of them forked against live Arc Mainnet
 npm run check-balance
 ```
 
@@ -151,10 +160,20 @@ and the same predeploys.
 
 `npm run deploy` prices the deployment before spending anything and refuses to broadcast unless
 the balance covers three times the estimate. `eth_estimateGas` against Arc Mainnet for the current
-bytecode returns **2,002,641 gas**, which at 20 gwei is **≈ 0.040 USDC**. That is an estimate from
-the live chain, not a figure from an actual deployment — nothing has been deployed yet, and gas
-price on Arc has moved between 20 and 39 gwei since mainnet opened, so treat it as an order of
-magnitude.
+bytecode returns **2,110,584 gas** — that part is a property of the bytecode and reproducible.
+
+The *price* is not. Arc mainnet opened on 16 September 2026 and `eth_gasPrice` moved between
+**20 and 225 gwei** within a few hours of this being written, which is the difference between a
+deployment costing 0.042 USDC and 0.47 USDC. Read the current price rather than trusting any
+figure quoted here:
+
+```bash
+curl -s https://rpc.mainnet.arc.io -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","method":"eth_gasPrice","params":[],"id":1}'
+```
+
+Nothing has been deployed yet, so every figure above is an estimate from the chain rather than a
+measurement of a past transaction.
 
 ### Frontend
 

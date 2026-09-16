@@ -130,7 +130,8 @@ contract ArcAgentGatewayTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
 
         vm.prank(agentPayer);
-        uint256 escrowId = gateway.createEscrow{value: escrowAmount}(payable(workerAgent), keccak256("scan"), deadline);
+        uint256 escrowId =
+            gateway.createEscrow{value: escrowAmount}(payable(workerAgent), keccak256("scan"), deadline, 1);
         assertEq(escrowId, 1);
 
         vm.prank(workerAgent);
@@ -149,7 +150,7 @@ contract ArcAgentGatewayTest is Test {
         uint256 escrowAmount = 3 * ONE_USDC;
         vm.prank(agentPayer);
         uint256 id = gateway.createEscrow{value: escrowAmount}(
-            payable(workerAgent), keccak256("task"), block.timestamp + 1 hours
+            payable(workerAgent), keccak256("task"), block.timestamp + 1 hours, 1
         );
 
         vm.prank(workerAgent);
@@ -171,7 +172,7 @@ contract ArcAgentGatewayTest is Test {
 
         vm.prank(agentPayer);
         uint256 escrowId =
-            gateway.createEscrow{value: escrowAmount}(payable(workerAgent), keccak256("uncompleted_task"), deadline);
+            gateway.createEscrow{value: escrowAmount}(payable(workerAgent), keccak256("uncompleted_task"), deadline, 1);
 
         vm.warp(block.timestamp + 31 minutes);
 
@@ -193,8 +194,9 @@ contract ArcAgentGatewayTest is Test {
     /// @dev Previously the worker could call completeEscrow in the funding block and take it all.
     function test_Regression_WorkerCannotDrainEscrowInstantly() public {
         vm.prank(agentPayer);
-        uint256 id =
-            gateway.createEscrow{value: 10 * ONE_USDC}(payable(workerAgent), keccak256("t"), block.timestamp + 1 hours);
+        uint256 id = gateway.createEscrow{value: 10 * ONE_USDC}(
+            payable(workerAgent), keccak256("t"), block.timestamp + 1 hours, 1
+        );
 
         // An empty result is refused outright: it was the whole exploit.
         vm.prank(workerAgent);
@@ -218,8 +220,9 @@ contract ArcAgentGatewayTest is Test {
     /// @dev Previously the worker could complete after expiry and front-run the payer's refund.
     function test_Regression_WorkerCannotSubmitAfterDeadline() public {
         vm.prank(agentPayer);
-        uint256 id =
-            gateway.createEscrow{value: 4 * ONE_USDC}(payable(workerAgent), keccak256("t"), block.timestamp + 1 hours);
+        uint256 id = gateway.createEscrow{value: 4 * ONE_USDC}(
+            payable(workerAgent), keccak256("t"), block.timestamp + 1 hours, 1
+        );
 
         vm.warp(block.timestamp + 2 hours);
 
@@ -237,7 +240,7 @@ contract ArcAgentGatewayTest is Test {
     function test_Regression_PayerCannotRefundSubmittedWork() public {
         vm.prank(agentPayer);
         uint256 id = gateway.createEscrow{value: 2 * ONE_USDC}(
-            payable(workerAgent), keccak256("t"), block.timestamp + 10 minutes
+            payable(workerAgent), keccak256("t"), block.timestamp + 10 minutes, 1
         );
 
         vm.prank(workerAgent);
@@ -258,7 +261,7 @@ contract ArcAgentGatewayTest is Test {
     function test_Regression_PayerCanRejectAndReclaim() public {
         uint256 deadline = block.timestamp + 30 days;
         vm.prank(agentPayer);
-        uint256 id = gateway.createEscrow{value: 100 * ONE_USDC}(payable(workerAgent), keccak256("t"), deadline);
+        uint256 id = gateway.createEscrow{value: 100 * ONE_USDC}(payable(workerAgent), keccak256("t"), deadline, 1);
 
         // Empty results are refused by the contract itself.
         vm.prank(workerAgent);
@@ -288,7 +291,7 @@ contract ArcAgentGatewayTest is Test {
     function test_Regression_SubmitAtExactDeadlineRejected() public {
         uint256 deadline = block.timestamp + 1 hours;
         vm.prank(agentPayer);
-        uint256 id = gateway.createEscrow{value: ONE_USDC}(payable(workerAgent), keccak256("t"), deadline);
+        uint256 id = gateway.createEscrow{value: ONE_USDC}(payable(workerAgent), keccak256("t"), deadline, 1);
 
         vm.warp(deadline);
         vm.prank(workerAgent);
@@ -297,10 +300,12 @@ contract ArcAgentGatewayTest is Test {
     }
 
     /// @dev Round 2, finding 1: a last-second submission must still leave the payer time to look.
+    ///      Round 3, finding 1: and rejecting in that window must not strip the worker of the
+    ///      chance to answer. This test previously stopped at the rejection and called it correct.
     function test_Regression_LateSubmissionStillGivesPayerAWindow() public {
         uint256 deadline = block.timestamp + 1 hours;
         vm.prank(agentPayer);
-        uint256 id = gateway.createEscrow{value: ONE_USDC}(payable(workerAgent), keccak256("t"), deadline);
+        uint256 id = gateway.createEscrow{value: ONE_USDC}(payable(workerAgent), keccak256("t"), deadline, 1);
 
         vm.warp(deadline - 1);
         vm.prank(workerAgent);
@@ -315,14 +320,115 @@ contract ArcAgentGatewayTest is Test {
 
         vm.prank(agentPayer);
         gateway.rejectResult(id);
+
+        // The rejection must have bought the worker a real chance to answer.
+        (,,,,, uint256 newDeadline,,,,) = gateway.escrows(id);
+        assertGe(newDeadline, block.timestamp + gateway.REVIEW_WINDOW(), "rejection extends the deadline");
+        vm.prank(workerAgent);
+        gateway.submitResult(id, "second attempt");
+    }
+
+    /// @dev Round 3, finding 1 (CRITICAL): reviewDeadline is >= deadline by construction, so the
+    ///      payer used to have a window in which they could reject but the worker could no longer
+    ///      resubmit. Rejecting there dropped the escrow to PENDING past its deadline, which is
+    ///      exactly the refund precondition — the payer kept the work (public in the submission
+    ///      calldata) and paid nothing, with no move available to the worker.
+    function test_Regression_PayerCannotRejectThenInstantlyRefund() public {
+        uint256 deadline = block.timestamp + 1 days;
+        vm.prank(agentPayer);
+        uint256 id = gateway.createEscrow{value: 100 * ONE_USDC}(payable(workerAgent), keccak256("t"), deadline, 1);
+
+        // Honest worker delivers one second before the deadline.
+        vm.warp(deadline - 1);
+        vm.prank(workerAgent);
+        gateway.submitResult(id, "genuine work product");
+
+        // Payer rejects after the deadline, inside the review window.
+        vm.warp(deadline + 1);
+        vm.prank(agentPayer);
+        gateway.rejectResult(id);
+
+        // The refund must NOT be available: the rejection moved the deadline forward.
+        vm.prank(agentPayer);
+        vm.expectRevert("Deadline not yet passed");
+        gateway.refundEscrow(id);
+
+        // And the worker can answer.
+        vm.prank(workerAgent);
+        gateway.submitResult(id, "second attempt");
+        vm.warp(gateway.reviewDeadline(id) + 1);
+        vm.prank(workerAgent);
+        gateway.claimSubmittedEscrow(id);
+        vm.prank(workerAgent);
+        gateway.withdraw();
+        assertEq(workerAgent.balance, 100 * ONE_USDC, "the worker keeps what it earned");
+    }
+
+    /// @dev Round 3, finding 1 (second PoC): the payer could force that window open even against a
+    ///      worker who answers instantly, by rejecting just before the deadline so the resubmission
+    ///      landed in the final hour. The rejection budget is what stops the loop.
+    function test_Regression_RejectionBudgetIsFinite() public {
+        uint256 deadline = block.timestamp + 10 days;
+        vm.prank(agentPayer);
+        uint256 id = gateway.createEscrow{value: 50 * ONE_USDC}(payable(workerAgent), keccak256("t"), deadline, 1);
+
+        vm.prank(workerAgent);
+        gateway.submitResult(id, "work");
+
+        vm.warp(deadline - 30 minutes);
+        vm.prank(agentPayer);
+        gateway.rejectResult(id);
+
+        vm.prank(workerAgent);
+        gateway.submitResult(id, "work again");
+
+        // Budget spent: the payer cannot keep sending it back.
+        vm.prank(agentPayer);
+        vm.expectRevert("No rejections left");
+        gateway.rejectResult(id);
+
+        // So this delivery stands.
+        vm.warp(gateway.reviewDeadline(id) + 1);
+        vm.prank(workerAgent);
+        gateway.claimSubmittedEscrow(id);
+        assertEq(gateway.claimableBalances(workerAgent), 50 * ONE_USDC);
+    }
+
+    /// @dev Round 3, finding 1: the reserved budget is visible on chain before the worker starts,
+    ///      and cannot be raised past the cap.
+    function test_Regression_RejectionBudgetIsPreCommittedAndCapped() public {
+        // Read the cap first: an external call placed after vm.expectRevert would consume it.
+        uint8 overCap = gateway.MAX_REJECTIONS() + 1;
+        vm.prank(agentPayer);
+        vm.expectRevert("Too many rejections reserved");
+        gateway.createEscrow{value: ONE_USDC}(payable(workerAgent), keccak256("t"), block.timestamp + 1 hours, overCap);
+
+        vm.prank(agentPayer);
+        uint256 id =
+            gateway.createEscrow{value: ONE_USDC}(payable(workerAgent), keccak256("t"), block.timestamp + 1 hours, 0);
+        (,,,,,,, uint8 left,,) = gateway.escrows(id);
+        assertEq(left, 0, "a payer may also reserve no right of refusal at all");
+
+        vm.prank(workerAgent);
+        gateway.submitResult(id, "work");
+        vm.prank(agentPayer);
+        vm.expectRevert("No rejections left");
+        gateway.rejectResult(id);
+    }
+
+    /// @dev Round 3, finding 4: a public view must not answer confidently about nothing.
+    function test_Regression_ReviewDeadlineRejectsUnknownEscrow() public {
+        vm.expectRevert("Escrow not found");
+        gateway.reviewDeadline(999);
     }
 
     /// @dev Round 2, finding 2: a submitted escrow whose worker never claims used to be frozen
     ///      forever. It now returns to the payer after the claim window.
     function test_Regression_AbandonedSubmissionIsRecoverable() public {
         vm.prank(agentPayer);
-        uint256 id =
-            gateway.createEscrow{value: 7 * ONE_USDC}(payable(workerAgent), keccak256("t"), block.timestamp + 1 hours);
+        uint256 id = gateway.createEscrow{value: 7 * ONE_USDC}(
+            payable(workerAgent), keccak256("t"), block.timestamp + 1 hours, 1
+        );
 
         vm.prank(workerAgent);
         gateway.submitResult(id, "delivered but never collected");
@@ -397,7 +503,7 @@ contract NoReceive {
     }
 
     function escrow(ArcAgentGateway gw, address payable worker, uint256 deadline, uint256 value) external {
-        gw.createEscrow{value: value}(worker, keccak256("t"), deadline);
+        gw.createEscrow{value: value}(worker, keccak256("t"), deadline, 1);
     }
 
     function refund(ArcAgentGateway gw, uint256 id) external {

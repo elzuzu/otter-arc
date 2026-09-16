@@ -13,7 +13,7 @@ Solidity for the ArcPay gateway on Arc Mainnet (chain 5042). Built with Foundry.
 
 ```bash
 forge build
-forge test          # 21 tests; 4 of them fork Arc Mainnet
+forge test          # 30 tests; 4 of them fork Arc Mainnet
 forge fmt --check
 ```
 
@@ -36,13 +36,19 @@ happens. See the root README for the full explanation and reproduction commands.
 
 Optimistic, with no on-chain arbiter:
 
-1. `createEscrow` locks native USDC against a task hash and a deadline.
-2. `submitResult` — worker only, before the deadline. Publishes the result and opens a
-   `REVIEW_WINDOW` (1 hour). It pays nothing.
-3. `releaseEscrow` — payer only, at any time before a refund.
-4. `claimSubmittedEscrow` — worker only, once the review window closes on a submitted result, so a
-   silent payer cannot strand delivered work.
-5. `refundEscrow` — payer only, after the deadline and only while still `PENDING`, so a payer
-   cannot refund out from under work that was delivered.
+1. `createEscrow` locks native USDC against a task hash, a deadline, and the number of rejections
+   the payer reserves (at most `MAX_REJECTIONS`). The budget is readable on chain before the
+   worker starts.
+2. `submitResult` — worker only, strictly before the deadline, non-empty result. Pays nothing.
+3. `releaseEscrow` — payer only, at any time before the escrow closes.
+4. `rejectResult` — payer only, while budget remains and the review period is open. Returns the
+   escrow to `PENDING` **and pushes the deadline to at least `now + REVIEW_WINDOW`**, so the worker
+   can actually answer. Without that extension the payer could reject past the deadline — where
+   `submitResult` is already closed — and refund a result that is permanently public.
+5. `claimSubmittedEscrow` — worker only, once `reviewDeadline` passes. Silence pays the worker.
+6. `refundEscrow` — payer only: a `PENDING` escrow past its deadline, or a `SUBMITTED` one the
+   worker left uncollected for `CLAIM_WINDOW`, so nothing is ever stranded.
+
+`reviewDeadline(id)` is `max(deadline, submittedAt + REVIEW_WINDOW)`.
 
 Arbitrating a *disputed* result is explicitly out of scope and would need a third party.

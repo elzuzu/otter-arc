@@ -64,6 +64,7 @@ contract ArcAgentGateway {
         bytes32 taskHash;
         uint256 deadline;
         uint256 submittedAt;
+        uint8 rejectionsLeft;
         EscrowStatus status;
         bytes resultData;
     }
@@ -76,6 +77,14 @@ contract ArcAgentGateway {
      *      payer no time to reject. One hour suits agents, which operate at machine speed.
      */
     uint256 public constant REVIEW_WINDOW = 1 hours;
+
+    /**
+     * @notice Most rejections a payer may reserve when creating an escrow.
+     * @dev The budget is fixed at creation and visible on chain, so a worker can read the terms
+     *      before spending anything. It is capped because an unbounded right of refusal is not a
+     *      review: the payer could refuse forever and win by attrition.
+     */
+    uint8 public constant MAX_REJECTIONS = 3;
 
     /**
      * @notice How long a worker has to collect an escrow the payer did not contest.
@@ -106,12 +115,15 @@ contract ArcAgentGateway {
         address indexed worker,
         uint256 amount,
         bytes32 taskHash,
-        uint256 deadline
+        uint256 deadline,
+        uint8 maxRejections
     );
     event EscrowResultSubmitted(
         uint256 indexed escrowId, address indexed worker, bytes resultData, uint256 claimableAt
     );
-    event EscrowResultRejected(uint256 indexed escrowId, address indexed payer);
+    event EscrowResultRejected(
+        uint256 indexed escrowId, address indexed payer, uint8 rejectionsLeft, uint256 newDeadline
+    );
     event EscrowReleased(uint256 indexed escrowId, address indexed worker, uint256 amount, address releasedBy);
     event EscrowRefunded(uint256 indexed escrowId, address indexed payer, uint256 amount);
     event FundsWithdrawn(address indexed recipient, uint256 amount);
@@ -215,11 +227,15 @@ contract ArcAgentGateway {
 
     /**
      * @notice Lock USDC in an autonomous escrow for a task to be performed by an AI agent.
+     * @dev `maxRejections` is the number of times the payer may send the work back, fixed here and
+     *      readable on chain before the worker starts. It is bounded because a payer who could
+     *      refuse indefinitely would not be reviewing the work, only outlasting the worker.
      * @param worker Address of the agent performing the task
      * @param taskHash Hash representing task description and parameters
-     * @param deadline Unix timestamp after which payer can refund if uncompleted
+     * @param deadline Unix timestamp after which the payer can refund if nothing was delivered
+     * @param maxRejections How many times the payer may reject a result, at most MAX_REJECTIONS
      */
-    function createEscrow(address payable worker, bytes32 taskHash, uint256 deadline)
+    function createEscrow(address payable worker, bytes32 taskHash, uint256 deadline, uint8 maxRejections)
         external
         payable
         nonReentrant
@@ -228,6 +244,7 @@ contract ArcAgentGateway {
         require(worker != address(0), "Invalid worker");
         require(msg.value > 0, "Must deposit native USDC");
         require(deadline > block.timestamp, "Deadline must be in future");
+        require(maxRejections <= MAX_REJECTIONS, "Too many rejections reserved");
 
         escrowId = ++escrowCounter;
         escrows[escrowId] = Escrow({
@@ -238,11 +255,12 @@ contract ArcAgentGateway {
             taskHash: taskHash,
             deadline: deadline,
             submittedAt: 0,
+            rejectionsLeft: maxRejections,
             status: EscrowStatus.PENDING,
             resultData: ""
         });
 
-        emit EscrowCreated(escrowId, msg.sender, worker, msg.value, taskHash, deadline);
+        emit EscrowCreated(escrowId, msg.sender, worker, msg.value, taskHash, deadline, maxRejections);
     }
 
     /**
@@ -252,6 +270,7 @@ contract ArcAgentGateway {
      */
     function reviewDeadline(uint256 escrowId) public view returns (uint256) {
         Escrow storage e = escrows[escrowId];
+        require(e.id != 0, "Escrow not found");
         uint256 floorTime = e.submittedAt + REVIEW_WINDOW;
         return e.deadline > floorTime ? e.deadline : floorTime;
     }
@@ -280,9 +299,19 @@ contract ArcAgentGateway {
 
     /**
      * @notice The payer refuses a submitted result, returning the escrow to PENDING.
-     * @dev This is the payer's side of the bargain: without it the review window would be a delay
-     *      rather than a review, and a worker could take the funds for anything at all. The worker
-     *      may submit again while the deadline still allows it.
+     *
+     * @dev Two properties make this a review rather than a way to take the work for free.
+     *
+     *      First, a rejection **extends the deadline** to at least REVIEW_WINDOW from now. Without
+     *      that, the payer could reject inside the window that `reviewDeadline` opens past the
+     *      deadline — a window in which `submitResult` is already closed — and then immediately
+     *      refund a result that is permanently public in the submission calldata. The worker would
+     *      have delivered and been paid nothing, with no move available.
+     *
+     *      Second, the number of rejections is fixed when the escrow is created and cannot grow.
+     *      Extending the deadline on every rejection, with no budget, would simply move the
+     *      dominant strategy: the payer would refuse forever and win by outspending the worker in
+     *      gas. Once the budget is spent the next delivery stands.
      */
     function rejectResult(uint256 escrowId) external nonReentrant {
         Escrow storage e = escrows[escrowId];
@@ -290,12 +319,19 @@ contract ArcAgentGateway {
         require(e.status == EscrowStatus.SUBMITTED, "No result under review");
         require(msg.sender == e.payer, "Only payer can reject");
         require(block.timestamp <= reviewDeadline(escrowId), "Review period is over");
+        require(e.rejectionsLeft > 0, "No rejections left");
 
+        e.rejectionsLeft -= 1;
         e.status = EscrowStatus.PENDING;
         e.submittedAt = 0;
         e.resultData = "";
 
-        emit EscrowResultRejected(escrowId, e.payer);
+        uint256 minDeadline = block.timestamp + REVIEW_WINDOW;
+        if (e.deadline < minDeadline) {
+            e.deadline = minDeadline;
+        }
+
+        emit EscrowResultRejected(escrowId, e.payer, e.rejectionsLeft, e.deadline);
     }
 
     /**

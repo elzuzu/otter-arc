@@ -15,7 +15,7 @@ The app talks to Arc over JSON-RPC with viem, and reads the deployed contract ad
 Three tabs:
 
 - **Pay-per-Call Registry** — reads `getServiceCount()` / `services(i)` from chain and encodes a
-  real `payForService(uint256,bytes32)` transaction. Not a hardcoded list.
+  real `payForService(uint256,bytes32,uint256)` transaction. Not a hardcoded list.
 - **Autonomous Micro-Escrow** — signs a real `createEscrow(address,bytes32,uint256)`.
 - **Decimals Proof** — reads any address's balance both ways and shows that
   `floor(native / 1e12) == balanceOf`, with the curl commands to reproduce it without the page.

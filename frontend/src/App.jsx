@@ -75,6 +75,7 @@ export default function App() {
   const [escrowId, setEscrowId] = useState('');
   const [escrowInfo, setEscrowInfo] = useState(null);
   const [escrowResult, setEscrowResult] = useState('');
+  const [escrowRejections, setEscrowRejections] = useState(1);
 
   const [proofAddress, setProofAddress] = useState(SAMPLE_ADDRESS);
   const [proof, setProof] = useState(null);
@@ -286,7 +287,9 @@ export default function App() {
       const data = encodeFunctionData({
         abi,
         functionName: 'createEscrow',
-        args: [escrowWorker, keccak256(toHex(escrowTask)), deadline],
+        // How many times you may send the work back. Fixed here and readable on chain, so the
+        // worker knows the terms before starting, and bounded so a refusal cannot be endless.
+        args: [escrowWorker, keccak256(toHex(escrowTask)), deadline, escrowRejections],
       });
       const hash = await window.ethereum.request({
         method: 'eth_sendTransaction',
@@ -334,9 +337,13 @@ export default function App() {
       const review = await publicClient.readContract({
         address: contractAddress, abi, functionName: 'reviewDeadline', args: [BigInt(id)],
       });
+      // Auto-getter order: id, payer, worker, amount, taskHash, deadline, submittedAt,
+      // rejectionsLeft, status, resultData. bytes and string members are returned, unlike
+      // arrays and mappings, so this tuple is ten wide — an easy place to slip by one.
       setEscrowInfo({
         id: r[0], payer: r[1], worker: r[2], amount: r[3],
-        deadline: r[5], submittedAt: r[6], status: Number(r[7]), reviewDeadline: review,
+        deadline: r[5], submittedAt: r[6], rejectionsLeft: Number(r[7]),
+        status: Number(r[8]), reviewDeadline: review,
       });
     } catch (err) {
       console.error('[ArcPay] escrow read failed', err);
@@ -608,9 +615,11 @@ export default function App() {
                 <ShieldCheck className="w-5 h-5 text-blue-400" /> Create a multi-agent task escrow
               </h2>
               <p className="text-xs text-slate-400 mt-1 mb-6">
-                Locks native USDC in <code className="text-blue-400">createEscrow</code>. You decide before the
-                deadline — release or reject — and silence pays the worker. Optimistic, with no on-chain arbiter:
-                a genuinely disputed result is out of scope here. This signs a real transaction.
+                Locks native USDC in <code className="text-blue-400">createEscrow</code>. You may send the work back
+                a fixed number of times, chosen here and visible on chain before the worker starts; each rejection
+                pushes the deadline out so the worker can answer, and once the budget is spent the next delivery
+                stands. Silence pays the worker. No on-chain arbiter — a genuinely disputed result is out of scope.
+                This signs a real transaction.
               </p>
               <div className="space-y-4">
                 <div>
@@ -635,6 +644,21 @@ export default function App() {
                     msg.value = {(() => { try { return parseUnits(escrowAmount || '0', NATIVE_DECIMALS).toString(); } catch { return '—'; } })()} native units
                   </p>
                 </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Rejections you reserve ({escrowRejections})
+                  </label>
+                  <input
+                    type="range" min="0" max="3" step="1" value={escrowRejections}
+                    onChange={(e) => setEscrowRejections(Number(e.target.value))}
+                    className="w-full accent-blue-500"
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    How many times you may send the work back. Each rejection also pushes the deadline out, so the
+                    worker can actually answer; once the budget is spent the next delivery stands. Capped on chain.
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-xs font-medium text-slate-300 mb-1">Task description (hashed on chain)</label>
                   <input
@@ -680,6 +704,7 @@ export default function App() {
                       ['amount', `${formatNative(escrowInfo.amount)} USDC`],
                       ['deadline', new Date(Number(escrowInfo.deadline) * 1000).toLocaleString()],
                       ['review ends', new Date(Number(escrowInfo.reviewDeadline) * 1000).toLocaleString()],
+                      ['rejections left', `${escrowInfo.rejectionsLeft}`],
                     ].map(([k, v]) => (
                       <div key={k} className="bg-slate-950/60 border border-slate-800 rounded-lg px-2 py-1.5">
                         <div className="text-slate-500">{k}</div>
@@ -749,7 +774,7 @@ export default function App() {
                 {[
                   ['Locked', <>USDC sits in <code>ArcAgentGateway</code>. An <code>escrowId</code> is emitted by <code>EscrowCreated</code>.</>],
                   ['Delivered', <>Strictly before the deadline, the worker calls <code>submitResult</code> with a non-empty payload. This pays nothing. An empty result is refused on chain.</>],
-                  ['Reviewed', <>Until <code>max(deadline, submitted + {REVIEW_WINDOW_LABEL})</code> the payer may <code>releaseEscrow</code> or <code>rejectResult</code>. A rejection returns the escrow to pending, so the worker can try again while the deadline allows.</>],
+                  ['Reviewed', <>Until <code>max(deadline, submitted + {REVIEW_WINDOW_LABEL})</code> the payer may <code>releaseEscrow</code>, or <code>rejectResult</code> if they still have rejections left. A rejection returns the escrow to pending <em>and pushes the deadline out by at least {REVIEW_WINDOW_LABEL}</em>, so &quot;try again&quot; is a real option rather than a formality.</>],
                   ['Claimed or refunded', <>Silence pays the worker, via <code>claimSubmittedEscrow</code>. Nothing acceptable delivered by the deadline, and the payer calls <code>refundEscrow</code>; a submission left uncollected for 30 days becomes refundable too, so nothing can be stranded. Every path credits a claimable balance — nothing is ever pushed.</>],
                 ].map(([title, body], i) => (
                   <div className="flex gap-3 items-start" key={title}>
