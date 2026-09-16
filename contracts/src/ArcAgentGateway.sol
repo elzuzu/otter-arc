@@ -1,0 +1,271 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/**
+ * @title ArcAgentGateway
+ * @author OtterArc Team
+ * @notice High-performance, native-USDC micro-payment and autonomous escrow gateway built specifically for Arc Mainnet (Chain ID 5042).
+ *
+ * Key Arc-Native Architecture:
+ * 1. Native Gas Asset: USDC (6 Decimals: 1 USDC = 1,000,000 units).
+ * 2. Pay-per-Call: Direct micro-payments for autonomous AI agent tool execution.
+ * 3. Micro-Escrow: Time-locked autonomous escrows for asynchronous agent workflows.
+ * 4. Pull-over-Push Security: Reentrancy protection with isolated provider balances.
+ */
+contract ArcAgentGateway {
+    // Arc native gas token decimals
+    uint8 public constant DECIMALS = 6;
+    uint256 public constant ONE_USDC = 1_000_000;
+
+    struct Service {
+        uint256 id;
+        address payable provider;
+        string name;
+        string endpoint;
+        uint256 fee; // in micro-USDC (6 decimals)
+        bool active;
+        uint256 totalCalls;
+        uint256 totalRevenue;
+    }
+
+    enum EscrowStatus { PENDING, COMPLETED, REFUNDED }
+
+    struct Escrow {
+        uint256 id;
+        address payer;
+        address payable worker;
+        uint256 amount;
+        bytes32 taskHash;
+        uint256 deadline;
+        EscrowStatus status;
+        bytes resultData;
+    }
+
+    address public immutable protocolOwner;
+    uint256 public serviceCounter;
+    uint256 public escrowCounter;
+
+    // Service storage
+    mapping(uint256 => Service) public services;
+    // Escrow storage
+    mapping(uint256 => Escrow) public escrows;
+    // Provider claimable balances (pull pattern)
+    mapping(address => uint256) public claimableBalances;
+
+    // Events
+    event ServiceRegistered(uint256 indexed serviceId, address indexed provider, string name, uint256 fee);
+    event ServiceUpdated(uint256 indexed serviceId, uint256 newFee, bool active);
+    event ServicePaid(
+        uint256 indexed serviceId,
+        address indexed payer,
+        address indexed provider,
+        uint256 amount,
+        bytes32 queryHash
+    );
+    event EscrowCreated(
+        uint256 indexed escrowId,
+        address indexed payer,
+        address indexed worker,
+        uint256 amount,
+        bytes32 taskHash,
+        uint256 deadline
+    );
+    event EscrowCompleted(uint256 indexed escrowId, address indexed worker, bytes resultData);
+    event EscrowRefunded(uint256 indexed escrowId, address indexed payer, uint256 amount);
+    event FundsWithdrawn(address indexed recipient, uint256 amount);
+
+    // Reentrancy guard
+    uint256 private _status;
+    modifier nonReentrant() {
+        require(_status != 2, "ReentrancyGuard: reentrant call");
+        _status = 2;
+        _;
+        _status = 1;
+    }
+
+    modifier onlyServiceOwner(uint256 serviceId) {
+        require(services[serviceId].provider == msg.sender, "Caller is not service provider");
+        _;
+    }
+
+    constructor() {
+        protocolOwner = msg.sender;
+        _status = 1;
+    }
+
+    // ==========================================
+    // 1. AGENT SERVICE REGISTRY & PAY-PER-CALL
+    // ==========================================
+
+    /**
+     * @notice Register a new agent service or micro-API endpoint.
+     * @param name Human-readable service name (e.g. "Arc-LLM-Inference-Fast")
+     * @param endpoint URL or decentralized ID
+     * @param fee Micro-USDC price per invocation (e.g. 5000 = 0.005 USDC)
+     */
+    function registerService(
+        string calldata name,
+        string calldata endpoint,
+        uint256 fee
+    ) external returns (uint256 serviceId) {
+        require(bytes(name).length > 0, "Name required");
+        serviceId = ++serviceCounter;
+
+        services[serviceId] = Service({
+            id: serviceId,
+            provider: payable(msg.sender),
+            name: name,
+            endpoint: endpoint,
+            fee: fee,
+            active: true,
+            totalCalls: 0,
+            totalRevenue: 0
+        });
+
+        emit ServiceRegistered(serviceId, msg.sender, name, fee);
+    }
+
+    /**
+     * @notice Update service fee and active status.
+     */
+    function updateService(
+        uint256 serviceId,
+        uint256 newFee,
+        bool active
+    ) external onlyServiceOwner(serviceId) {
+        services[serviceId].fee = newFee;
+        services[serviceId].active = active;
+        emit ServiceUpdated(serviceId, newFee, active);
+    }
+
+    /**
+     * @notice Pay for an agent service with native USDC.
+     * @param serviceId Target service identifier
+     * @param queryHash Hash of the request payload or prompt
+     */
+    function payForService(uint256 serviceId, bytes32 queryHash) external payable nonReentrant {
+        Service storage s = services[serviceId];
+        require(s.id != 0, "Service does not exist");
+        require(s.active, "Service is not active");
+        require(msg.value >= s.fee, "Insufficient native USDC sent");
+
+        s.totalCalls += 1;
+        s.totalRevenue += s.fee;
+        claimableBalances[s.provider] += s.fee;
+
+        // Refund any excess USDC sent
+        uint256 refund = msg.value - s.fee;
+        if (refund > 0) {
+            (bool success, ) = payable(msg.sender).call{value: refund}("");
+            require(success, "Refund transfer failed");
+        }
+
+        emit ServicePaid(serviceId, msg.sender, s.provider, s.fee, queryHash);
+    }
+
+    // ==========================================
+    // 2. AUTONOMOUS AGENT ESCROW
+    // ==========================================
+
+    /**
+     * @notice Lock USDC in an autonomous escrow for a task to be performed by an AI agent.
+     * @param worker Address of the agent performing the task
+     * @param taskHash Hash representing task description and parameters
+     * @param deadline Unix timestamp after which payer can refund if uncompleted
+     */
+    function createEscrow(
+        address payable worker,
+        bytes32 taskHash,
+        uint256 deadline
+    ) external payable nonReentrant returns (uint256 escrowId) {
+        require(worker != address(0), "Invalid worker");
+        require(msg.value > 0, "Must deposit native USDC");
+        require(deadline > block.timestamp, "Deadline must be in future");
+
+        escrowId = ++escrowCounter;
+        escrows[escrowId] = Escrow({
+            id: escrowId,
+            payer: msg.sender,
+            worker: worker,
+            amount: msg.value,
+            taskHash: taskHash,
+            deadline: deadline,
+            status: EscrowStatus.PENDING,
+            resultData: ""
+        });
+
+        emit EscrowCreated(escrowId, msg.sender, worker, msg.value, taskHash, deadline);
+    }
+
+    /**
+     * @notice Worker agent submits result and claims escrowed USDC.
+     * @dev Payer or worker can trigger settlement once satisfied.
+     */
+    function completeEscrow(uint256 escrowId, bytes calldata resultData) external nonReentrant {
+        Escrow storage e = escrows[escrowId];
+        require(e.id != 0, "Escrow not found");
+        require(e.status == EscrowStatus.PENDING, "Escrow already closed");
+        require(msg.sender == e.worker || msg.sender == e.payer, "Unauthorized");
+
+        e.status = EscrowStatus.COMPLETED;
+        e.resultData = resultData;
+        claimableBalances[e.worker] += e.amount;
+
+        emit EscrowCompleted(escrowId, e.worker, resultData);
+    }
+
+    /**
+     * @notice Payer reclaims locked funds if deadline has expired without completion.
+     */
+    function refundEscrow(uint256 escrowId) external nonReentrant {
+        Escrow storage e = escrows[escrowId];
+        require(e.id != 0, "Escrow not found");
+        require(e.status == EscrowStatus.PENDING, "Escrow already closed");
+        require(msg.sender == e.payer, "Only payer can refund");
+        require(block.timestamp > e.deadline, "Deadline not yet passed");
+
+        e.status = EscrowStatus.REFUNDED;
+        uint256 amount = e.amount;
+
+        (bool success, ) = payable(e.payer).call{value: amount}("");
+        require(success, "Refund failed");
+
+        emit EscrowRefunded(escrowId, e.payer, amount);
+    }
+
+    // ==========================================
+    // 3. WITHDRAWAL & UTILITIES
+    // ==========================================
+
+    /**
+     * @notice Withdraw accumulated earnings in native USDC.
+     */
+    function withdraw() external nonReentrant {
+        uint256 amount = claimableBalances[msg.sender];
+        require(amount > 0, "Zero balance to withdraw");
+
+        claimableBalances[msg.sender] = 0;
+        (bool success, ) = payable(msg.sender).call{value: amount}("");
+        require(success, "Withdrawal failed");
+
+        emit FundsWithdrawn(msg.sender, amount);
+    }
+
+    /**
+     * @notice View service count.
+     */
+    function getServiceCount() external view returns (uint256) {
+        return serviceCounter;
+    }
+
+    /**
+     * @notice View escrow count.
+     */
+    function getEscrowCount() external view returns (uint256) {
+        return escrowCounter;
+    }
+
+    receive() external payable {
+        // Fallback allows funding if needed
+    }
+}

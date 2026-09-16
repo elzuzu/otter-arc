@@ -1,0 +1,20 @@
+{
+  "name": "otter-arc",
+  "version": "1.0.0",
+  "description": "ArcPay: Native USDC Micro-Payment & Agentic Gateway on Arc Mainnet",
+  "type": "module",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "test": "cd contracts && forge test",
+    "deploy": "node scripts/deploy.mjs",
+    "check-balance": "node scripts/check-balance.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "viem": "^2.23.0"
+  },
+  "keywords": ["arc", "usdc", "agentic", "circle", "microgrants"],
+  "author": "OtterArc",
+  "license": "MIT"
+}
