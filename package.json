@@ -7,8 +7,12 @@
     "dev": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
     "test": "cd contracts && forge test",
-    "deploy": "node scripts/deploy.mjs",
-    "check-balance": "node scripts/check-balance.mjs"
+    "sync-artifact": "node scripts/sync-artifact.mjs",
+    "deploy": "cd contracts && forge build && cd .. && npm run sync-artifact && node scripts/deploy.mjs",
+    "seed": "node scripts/seed-services.mjs",
+    "check-balance": "node scripts/check-balance.mjs",
+    "check-links": "node scripts/check-links.mjs",
+    "verify": "npm test && npm run check-links"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

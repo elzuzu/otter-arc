@@ -1,24 +1,22 @@
-import { createPublicClient, http, formatUnits } from 'viem';
+import { createPublicClient, fallback, http, formatUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import dotenv from 'dotenv';
-dotenv.config();
+import {
+  arcMainnet,
+  ARC_RPC_URLS,
+  USDC_ERC20,
+  USDC_ABI,
+  NATIVE_DECIMALS,
+  ERC20_DECIMALS,
+  SCALE,
+  addressUrl,
+} from './arc-chain.mjs';
 
-// Arc Mainnet Definition
-export const arcMainnet = {
-  id: 5042,
-  name: 'Arc Mainnet',
-  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 6 },
-  rpcUrls: {
-    default: { http: [process.env.ARC_RPC_URL || 'https://rpc.mainnet.arc.io'] },
-  },
-  blockExplorers: {
-    default: { name: 'ArcScan', url: 'https://arcscan.app' },
-  },
-};
+dotenv.config();
 
 const client = createPublicClient({
   chain: arcMainnet,
-  transport: http(),
+  transport: fallback(ARC_RPC_URLS.map((url) => http(url))),
 });
 
 async function main() {
@@ -27,13 +25,19 @@ async function main() {
   console.log('======================================================');
 
   try {
-    const blockNumber = await client.getBlockNumber();
-    const gasPrice = await client.getGasPrice();
-    console.log(`[+] Arc Mainnet RPC: ${arcMainnet.rpcUrls.default.http[0]}`);
-    console.log(`[+] Current Block Number: #${blockNumber.toString()}`);
-    console.log(`[+] Gas Price: ${gasPrice.toString()} micro-units (${formatUnits(gasPrice, 6)} USDC/unit)`);
+    const [blockNumber, gasPrice, chainId] = await Promise.all([
+      client.getBlockNumber(),
+      client.getGasPrice(),
+      client.getChainId(),
+    ]);
+    console.log(`[+] RPC            : ${ARC_RPC_URLS[0]}`);
+    console.log(`[+] Chain ID       : ${chainId}${chainId === 5042 ? ' (Arc Mainnet)' : ' (UNEXPECTED)'}`);
+    console.log(`[+] Block number   : #${blockNumber}`);
+    console.log(`[+] Gas price      : ${gasPrice} wei-equivalent (${formatUnits(gasPrice, 9)} gwei)`);
   } catch (err) {
-    console.warn(`[!] Note: Arc Mainnet RPC ping returned: ${err.message}`);
+    console.error(`[x] Arc Mainnet RPC unreachable: ${err.shortMessage || err.message}`);
+    process.exitCode = 1;
+    return;
   }
 
   let address = process.env.WALLET_ADDRESS;
@@ -41,38 +45,52 @@ async function main() {
     try {
       const rawKey = process.env.PRIVATE_KEY.trim();
       const formattedKey = rawKey.startsWith('0x') ? rawKey : `0x${rawKey}`;
-      const account = privateKeyToAccount(formattedKey);
-      address = account.address;
-    } catch (e) {
+      address = privateKeyToAccount(formattedKey).address;
+    } catch {
       console.error('[x] Invalid PRIVATE_KEY in .env');
     }
   }
 
   if (!address) {
     console.log('\n[!] No WALLET_ADDRESS or PRIVATE_KEY defined in .env');
-    console.log('    Add your PRIVATE_KEY or WALLET_ADDRESS in .env to check your balance.');
+    console.log('    Add one to check a balance.');
     console.log('======================================================\n');
     return;
   }
 
-  console.log(`\n[>] Target Wallet Address: ${address}`);
-  try {
-    const balance = await client.getBalance({ address });
-    // Arc native gas is USDC with 6 decimals
-    const balanceUsdc = formatUnits(balance, 6);
-    console.log(`[✓] Native Gas Balance: ${balanceUsdc} USDC`);
+  console.log(`\n[>] Address        : ${address}`);
+  console.log(`    ${addressUrl(address)}`);
 
-    if (balance === 0n) {
-      console.log('\n[!] Balance is 0 USDC. To deploy on Arc Mainnet, bridge a small amount');
-      console.log('    of USDC via Circle CCTP or transfer USDC on Arc to your address:');
-      console.log(`    👉 ${address}`);
+  try {
+    // Arc exposes the same balance twice. Read both and show that they agree, because getting
+    // this wrong by a factor of 1e12 is the most common way to misread an Arc balance.
+    const [native, erc20] = await Promise.all([
+      client.getBalance({ address }),
+      client.readContract({ address: USDC_ERC20, abi: USDC_ABI, functionName: 'balanceOf', args: [address] }),
+    ]);
+
+    const remainder = native % SCALE;
+
+    console.log('\n    --- the same balance, both of Arc\'s views ---');
+    console.log(`    native  (${NATIVE_DECIMALS} dec) : ${formatUnits(native, NATIVE_DECIMALS)} USDC   [raw ${native}]`);
+    console.log(`    ERC-20  ( ${ERC20_DECIMALS} dec) : ${formatUnits(erc20, ERC20_DECIMALS)} USDC   [raw ${erc20}]`);
+    console.log(`    relation           : floor(native / 1e12) == ERC-20  ->  ${native / SCALE === erc20 ? 'OK' : 'MISMATCH'}`);
+    console.log(`    truncated remainder: ${remainder} native units (< 1e12, i.e. under 0.000001 USDC)`);
+
+    if (native === 0n) {
+      console.log('\n[!] Balance is 0. To deploy on Arc Mainnet, bridge USDC to:');
+      console.log(`    ${address}`);
     } else {
-      console.log('\n[🎉] Wallet is funded and ready for deployment!');
+      console.log('\n[ok] Wallet is funded.');
     }
   } catch (err) {
-    console.error(`[x] Error querying balance: ${err.message}`);
+    console.error(`[x] Error querying balance: ${err.shortMessage || err.message}`);
+    process.exitCode = 1;
   }
   console.log('======================================================\n');
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
