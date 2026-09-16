@@ -14,7 +14,8 @@
     "check-links": "node scripts/check-links.mjs",
     "verify": "npm test && npm run check-links",
     "publish-site": "bash scripts/publish-site.sh",
-    "verify-deployment": "node scripts/verify-deployment.mjs"
+    "verify-deployment": "node scripts/verify-deployment.mjs",
+    "finalize-submission": "node scripts/finalize-submission.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
