@@ -76,7 +76,7 @@ contract ArcAgentGatewayTest is Test {
         // 2. Agent calls service and pays exact fee
         vm.startPrank(agentPayer);
         bytes32 queryHash = keccak256("prompt:analyze_liquidity_dex");
-        gateway.payForService{value: fee}(serviceId, queryHash);
+        gateway.payForService{value: fee}(serviceId, queryHash, fee);
         vm.stopPrank();
 
         // Check counters, revenue & provider balance
@@ -101,7 +101,7 @@ contract ArcAgentGatewayTest is Test {
         vm.prank(agentPayer);
         // Pay 0.1 USDC when the fee is 0.02 USDC. The 0.08 excess is credited back rather than
         // pushed, so that a contract payer without receive() cannot brick its own call.
-        gateway.payForService{value: 1e17}(serviceId, keccak256("image_task"));
+        gateway.payForService{value: 1e17}(serviceId, keccak256("image_task"), 2e16);
 
         assertEq(gateway.claimableBalances(provider), 2e16, "provider earns exactly the fee");
         assertEq(gateway.claimableBalances(agentPayer), 8e16, "excess is claimable by the payer");
@@ -118,7 +118,7 @@ contract ArcAgentGatewayTest is Test {
 
         vm.prank(agentPayer);
         vm.expectRevert("Insufficient native USDC sent");
-        gateway.payForService{value: 2e16 - 1}(serviceId, keccak256("underpaid"));
+        gateway.payForService{value: 2e16 - 1}(serviceId, keccak256("underpaid"), 2e16);
     }
 
     // ==========================================
@@ -156,7 +156,7 @@ contract ArcAgentGatewayTest is Test {
         gateway.submitResult(id, "done");
 
         // A silent payer must not be able to strand delivered work.
-        vm.warp(block.timestamp + gateway.REVIEW_WINDOW() + 1);
+        vm.warp(gateway.reviewDeadline(id) + 1);
         vm.prank(workerAgent);
         gateway.claimSubmittedEscrow(id);
 
@@ -196,13 +196,18 @@ contract ArcAgentGatewayTest is Test {
         uint256 id =
             gateway.createEscrow{value: 10 * ONE_USDC}(payable(workerAgent), keccak256("t"), block.timestamp + 1 hours);
 
+        // An empty result is refused outright: it was the whole exploit.
         vm.prank(workerAgent);
+        vm.expectRevert("Result required");
         gateway.submitResult(id, "");
 
-        // Submitting pays nothing, and the review window is not open to be skipped.
+        vm.prank(workerAgent);
+        gateway.submitResult(id, "real work");
+
+        // Submitting pays nothing, and the review period cannot be skipped.
         assertEq(gateway.claimableBalances(workerAgent), 0);
         vm.prank(workerAgent);
-        vm.expectRevert("Review window still open");
+        vm.expectRevert("Review period still open");
         gateway.claimSubmittedEscrow(id);
 
         vm.prank(workerAgent);
@@ -240,8 +245,106 @@ contract ArcAgentGatewayTest is Test {
 
         vm.warp(block.timestamp + 11 minutes);
         vm.prank(agentPayer);
-        vm.expectRevert("Escrow already closed");
+        vm.expectRevert("Worker may still claim");
         gateway.refundEscrow(id);
+    }
+
+    // ==========================================
+    // Regressions from the second review
+    // ==========================================
+
+    /// @dev Round 2, finding 1: a worker could take the whole escrow for zero bytes, because the
+    ///      payer had no way to say no. Both halves are now closed.
+    function test_Regression_PayerCanRejectAndReclaim() public {
+        uint256 deadline = block.timestamp + 30 days;
+        vm.prank(agentPayer);
+        uint256 id = gateway.createEscrow{value: 100 * ONE_USDC}(payable(workerAgent), keccak256("t"), deadline);
+
+        // Empty results are refused by the contract itself.
+        vm.prank(workerAgent);
+        vm.expectRevert("Result required");
+        gateway.submitResult(id, "");
+
+        // And a non-empty but unacceptable result can be rejected by the payer.
+        vm.prank(workerAgent);
+        gateway.submitResult(id, hex"00");
+        vm.prank(agentPayer);
+        gateway.rejectResult(id);
+
+        // The escrow is pending again, so the deadline still protects the payer.
+        vm.warp(deadline + 1);
+        vm.prank(workerAgent);
+        vm.expectRevert("Deadline has passed");
+        gateway.submitResult(id, "late retry");
+
+        vm.prank(agentPayer);
+        gateway.refundEscrow(id);
+        assertEq(gateway.claimableBalances(agentPayer), 100 * ONE_USDC);
+        assertEq(gateway.claimableBalances(workerAgent), 0);
+    }
+
+    /// @dev Round 2, finding 1: submitting exactly at the deadline used to be allowed, which let a
+    ///      worker convert a refundable escrow into a payout at the last second.
+    function test_Regression_SubmitAtExactDeadlineRejected() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        vm.prank(agentPayer);
+        uint256 id = gateway.createEscrow{value: ONE_USDC}(payable(workerAgent), keccak256("t"), deadline);
+
+        vm.warp(deadline);
+        vm.prank(workerAgent);
+        vm.expectRevert("Deadline has passed");
+        gateway.submitResult(id, "right on the buzzer");
+    }
+
+    /// @dev Round 2, finding 1: a last-second submission must still leave the payer time to look.
+    function test_Regression_LateSubmissionStillGivesPayerAWindow() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        vm.prank(agentPayer);
+        uint256 id = gateway.createEscrow{value: ONE_USDC}(payable(workerAgent), keccak256("t"), deadline);
+
+        vm.warp(deadline - 1);
+        vm.prank(workerAgent);
+        gateway.submitResult(id, "just in time");
+
+        // The deadline is past, but the review floor is not.
+        assertEq(gateway.reviewDeadline(id), deadline - 1 + gateway.REVIEW_WINDOW());
+        vm.warp(deadline + 1);
+        vm.prank(workerAgent);
+        vm.expectRevert("Review period still open");
+        gateway.claimSubmittedEscrow(id);
+
+        vm.prank(agentPayer);
+        gateway.rejectResult(id);
+    }
+
+    /// @dev Round 2, finding 2: a submitted escrow whose worker never claims used to be frozen
+    ///      forever. It now returns to the payer after the claim window.
+    function test_Regression_AbandonedSubmissionIsRecoverable() public {
+        vm.prank(agentPayer);
+        uint256 id =
+            gateway.createEscrow{value: 7 * ONE_USDC}(payable(workerAgent), keccak256("t"), block.timestamp + 1 hours);
+
+        vm.prank(workerAgent);
+        gateway.submitResult(id, "delivered but never collected");
+
+        vm.warp(gateway.reviewDeadline(id) + gateway.CLAIM_WINDOW() + 1);
+        vm.prank(agentPayer);
+        gateway.refundEscrow(id);
+        assertEq(gateway.claimableBalances(agentPayer), 7 * ONE_USDC);
+    }
+
+    /// @dev Round 2, finding 3: the provider could raise the fee in front of a payment and take
+    ///      the entire msg.value the caller had signed for a much smaller price.
+    function test_Regression_ProviderCannotFrontRunTheFee() public {
+        vm.prank(provider);
+        uint256 sid = gateway.registerService("cheap", "https://x", 1e16); // 0.01 USDC
+
+        vm.prank(provider);
+        gateway.updateService(sid, 1 * ONE_USDC, true); // 100x, lands first
+
+        vm.prank(agentPayer);
+        vm.expectRevert("Fee exceeds caller's limit");
+        gateway.payForService{value: 1 * ONE_USDC}(sid, keccak256("q"), 1e16);
     }
 
     /// @dev Previously excess payment and refunds were pushed, bricking any payer without receive().
@@ -290,7 +393,7 @@ contract ArcAgentGatewayTest is Test {
 /// @notice A contract payer with no receive() — the shape that push-payments brick.
 contract NoReceive {
     function pay(ArcAgentGateway gw, uint256 serviceId, uint256 value) external {
-        gw.payForService{value: value}(serviceId, keccak256("q"));
+        gw.payForService{value: value}(serviceId, keccak256("q"), value);
     }
 
     function escrow(ArcAgentGateway gw, address payable worker, uint256 deadline, uint256 value) external {

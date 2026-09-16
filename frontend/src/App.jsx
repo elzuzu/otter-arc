@@ -36,6 +36,14 @@ import {
 const abi = contractArtifact.abi;
 const contractAddress = deployedAddressInfo?.contractAddress || '';
 
+/**
+ * Most services the dashboard will read and render.
+ *
+ * registerService is permissionless and unmetered, so the registry is attacker-growable. Without
+ * a cap, one page load would fan out into as many concurrent RPC reads as there are entries.
+ */
+const MAX_SERVICES_RENDERED = 24;
+
 /** Mirrors ArcAgentGateway.REVIEW_WINDOW; shown in the escrow copy. */
 const REVIEW_WINDOW_LABEL = '1 hour';
 
@@ -57,10 +65,16 @@ export default function App() {
 
   const [services, setServices] = useState([]);
   const [servicesError, setServicesError] = useState(null);
+  const [serviceCount, setServiceCount] = useState(0);
 
   const [escrowWorker, setEscrowWorker] = useState('');
   const [escrowAmount, setEscrowAmount] = useState('0.05');
   const [escrowTask, setEscrowTask] = useState('DEX Arbitrage Path Computation');
+
+  const [claimable, setClaimable] = useState(null);
+  const [escrowId, setEscrowId] = useState('');
+  const [escrowInfo, setEscrowInfo] = useState(null);
+  const [escrowResult, setEscrowResult] = useState('');
 
   const [proofAddress, setProofAddress] = useState(SAMPLE_ADDRESS);
   const [proof, setProof] = useState(null);
@@ -97,7 +111,9 @@ export default function App() {
       const count = await publicClient.readContract({
         address: contractAddress, abi, functionName: 'getServiceCount',
       });
-      const ids = Array.from({ length: Number(count) }, (_, i) => BigInt(i + 1));
+      const shown = Math.min(Number(count), MAX_SERVICES_RENDERED);
+      const ids = Array.from({ length: shown }, (_, i) => BigInt(i + 1));
+      setServiceCount(Number(count));
       const rows = await Promise.all(
         ids.map((id) => publicClient.readContract({
           address: contractAddress, abi, functionName: 'services', args: [id],
@@ -152,6 +168,14 @@ export default function App() {
       ]);
       setNativeBalance(native);
       setErc20Balance(erc20);
+
+      // Everything this contract owes is pulled, never pushed, so the dashboard has to surface
+      // the claimable balance — otherwise funds the user is owed are invisible and unreachable.
+      if (contractAddress) {
+        setClaimable(await publicClient.readContract({
+          address: contractAddress, abi, functionName: 'claimableBalances', args: [addr],
+        }));
+      }
     } catch (err) {
       console.error('[ArcPay] account refresh failed', err);
     }
@@ -215,8 +239,9 @@ export default function App() {
   };
 
   /**
-   * Pay a registered service. This encodes a real `payForService(uint256,bytes32)` call — a bare
-   * value transfer would land in `receive()` and leave the registry counters untouched.
+   * Pay a registered service. This encodes a real `payForService(uint256,bytes32,uint256)` call.
+   * A bare value transfer would not do: the contract has no `receive()`, so it would simply
+   * revert, and even if it did not it would leave the registry counters untouched.
    */
   const handlePayService = async (service) => {
     setTxLoading(true); setTxSuccess(null); setTxError(null);
@@ -227,7 +252,13 @@ export default function App() {
         functionName: 'payForService',
         // Stands in for the hash of the request payload an agent would actually be paying for.
         // Anchored to the current block so repeated calls produce distinct, traceable hashes.
-        args: [service.id, keccak256(toHex(`arcpay:${service.id}:${service.name}:${blockHeight ?? 0n}`))],
+        // The fee we just read is also the ceiling we accept: without it the provider could
+        // raise the price in front of this transaction and keep the whole msg.value.
+        args: [
+          service.id,
+          keccak256(toHex(`arcpay:${service.id}:${service.name}:${blockHeight ?? 0n}`)),
+          service.fee,
+        ],
       });
       const hash = await window.ethereum.request({
         method: 'eth_sendTransaction',
@@ -270,6 +301,48 @@ export default function App() {
       setTxLoading(false);
     }
   };
+
+  /** Send any no-argument (or single-id) contract call and refresh what it affects. */
+  const sendCall = async (functionName, args, label) => {
+    setTxLoading(true); setTxSuccess(null); setTxError(null);
+    try {
+      requireReady();
+      const data = encodeFunctionData({ abi, functionName, args });
+      const hash = await window.ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{ from: account, to: contractAddress, data }],
+      });
+      setTxSuccess({ hash, label, amount: '—' });
+      await publicClient.waitForTransactionReceipt({ hash });
+      await Promise.all([refreshAccountState(account), loadServices(), loadEscrow(escrowId)]);
+    } catch (err) {
+      setTxError(err.shortMessage || err.message || 'Transaction failed');
+    } finally {
+      setTxLoading(false);
+    }
+  };
+
+  const ESCROW_STATUS = ['Pending', 'Submitted', 'Released', 'Refunded'];
+
+  const loadEscrow = useCallback(async (id) => {
+    if (!contractAddress || !id) { setEscrowInfo(null); return; }
+    try {
+      const r = await publicClient.readContract({
+        address: contractAddress, abi, functionName: 'escrows', args: [BigInt(id)],
+      });
+      if (r[0] === 0n) { setEscrowInfo(null); return; }
+      const review = await publicClient.readContract({
+        address: contractAddress, abi, functionName: 'reviewDeadline', args: [BigInt(id)],
+      });
+      setEscrowInfo({
+        id: r[0], payer: r[1], worker: r[2], amount: r[3],
+        deadline: r[5], submittedAt: r[6], status: Number(r[7]), reviewDeadline: review,
+      });
+    } catch (err) {
+      console.error('[ArcPay] escrow read failed', err);
+      setEscrowInfo(null);
+    }
+  }, []);
 
   // ------------------------------------------------------------------ render
 
@@ -421,6 +494,31 @@ export default function App() {
           </div>
         )}
 
+        {/* Claimable balance — this contract only ever pays by pull, so this has to be visible */}
+        {account && claimable !== null && claimable > 0n && (
+          <div className="mb-6 p-4 rounded-xl bg-blue-500/10 border border-blue-500/30 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Coins className="w-5 h-5 text-blue-400 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-blue-200">
+                  {formatNative(claimable)} USDC waiting for you
+                </p>
+                <p className="text-xs text-blue-300/70 mt-0.5">
+                  Service fees, released escrows, refunds and overpayment all accrue here. The contract never
+                  pushes value, so you collect it with <code>withdraw()</code>.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => sendCall('withdraw', [], 'withdraw()')}
+              disabled={txLoading}
+              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-medium px-4 py-2 rounded-xl transition shrink-0"
+            >
+              {txLoading ? 'Sending…' : 'Withdraw'}
+            </button>
+          </div>
+        )}
+
         {/* TAB: registry */}
         {activeTab === 'paywall' && (
           <div>
@@ -443,6 +541,13 @@ export default function App() {
             )}
             {servicesError && (
               <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs mb-4">Registry read failed: {servicesError}</div>
+            )}
+
+            {serviceCount > services.length && (
+              <p className="text-xs text-amber-400/80 mb-4">
+                Showing the first {services.length} of {serviceCount} registered services. Registration is
+                permissionless, so the registry is capped here rather than fanned out into one RPC read per entry.
+              </p>
             )}
 
             <div className="grid md:grid-cols-3 gap-6">
@@ -502,11 +607,9 @@ export default function App() {
                 <ShieldCheck className="w-5 h-5 text-blue-400" /> Create a multi-agent task escrow
               </h2>
               <p className="text-xs text-slate-400 mt-1 mb-6">
-                Locks native USDC in <code className="text-blue-400">createEscrow</code>. The worker publishes a result
-                before the deadline, which opens a {REVIEW_WINDOW_LABEL} window for you to release early; if you stay
-                silent the worker can claim once it closes, and if nothing is ever delivered you refund after the
-                deadline. Optimistic, with no on-chain arbiter — a genuinely disputed result is out of scope here.
-                This signs a real transaction.
+                Locks native USDC in <code className="text-blue-400">createEscrow</code>. You decide before the
+                deadline — release or reject — and silence pays the worker. Optimistic, with no on-chain arbiter:
+                a genuinely disputed result is out of scope here. This signs a real transaction.
               </p>
               <div className="space-y-4">
                 <div>
@@ -551,13 +654,102 @@ export default function App() {
             </div>
 
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6">
-              <h3 className="text-sm font-semibold text-white mb-3">On-chain lifecycle</h3>
+              <h3 className="text-sm font-semibold text-white mb-3">Manage an escrow</h3>
+              <p className="text-xs text-slate-400 mb-4">
+                Every action below is a real transaction. Which ones are available to you depends on whether you
+                are the payer or the worker, and on where the escrow is in its lifecycle.
+              </p>
+
+              <div className="flex gap-2 mb-4">
+                <input
+                  type="number" min="1" value={escrowId} placeholder="escrow id"
+                  onChange={(e) => setEscrowId(e.target.value)}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-blue-500"
+                />
+                <button onClick={() => loadEscrow(escrowId)} className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-4 py-2 rounded-xl border border-slate-700 transition">
+                  Load
+                </button>
+              </div>
+
+              {escrowInfo && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                    {[
+                      ['status', ESCROW_STATUS[escrowInfo.status]],
+                      ['amount', `${formatNative(escrowInfo.amount)} USDC`],
+                      ['deadline', new Date(Number(escrowInfo.deadline) * 1000).toLocaleString()],
+                      ['review ends', new Date(Number(escrowInfo.reviewDeadline) * 1000).toLocaleString()],
+                    ].map(([k, v]) => (
+                      <div key={k} className="bg-slate-950/60 border border-slate-800 rounded-lg px-2 py-1.5">
+                        <div className="text-slate-500">{k}</div>
+                        <div className="text-slate-200 break-all">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="text-[11px] font-mono text-slate-500 break-all">
+                    payer {escrowInfo.payer}<br />worker {escrowInfo.worker}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => sendCall('releaseEscrow', [BigInt(escrowId)], `releaseEscrow(${escrowId})`)}
+                      disabled={txLoading}
+                      className="bg-emerald-600/80 hover:bg-emerald-500 disabled:opacity-30 text-white text-xs py-2 rounded-xl transition"
+                    >
+                      Release (payer)
+                    </button>
+                    <button
+                      onClick={() => sendCall('rejectResult', [BigInt(escrowId)], `rejectResult(${escrowId})`)}
+                      disabled={txLoading}
+                      className="bg-amber-600/80 hover:bg-amber-500 disabled:opacity-30 text-white text-xs py-2 rounded-xl transition"
+                    >
+                      Reject (payer)
+                    </button>
+                    <button
+                      onClick={() => sendCall('refundEscrow', [BigInt(escrowId)], `refundEscrow(${escrowId})`)}
+                      disabled={txLoading}
+                      className="bg-slate-700 hover:bg-slate-600 disabled:opacity-30 text-white text-xs py-2 rounded-xl transition"
+                    >
+                      Refund (payer)
+                    </button>
+                    <button
+                      onClick={() => sendCall('claimSubmittedEscrow', [BigInt(escrowId)], `claimSubmittedEscrow(${escrowId})`)}
+                      disabled={txLoading}
+                      className="bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white text-xs py-2 rounded-xl transition"
+                    >
+                      Claim (worker)
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input
+                      type="text" value={escrowResult} placeholder="result payload (worker)"
+                      onChange={(e) => setEscrowResult(e.target.value)}
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-blue-500"
+                    />
+                    <button
+                      onClick={() => sendCall('submitResult', [BigInt(escrowId), toHex(escrowResult)], `submitResult(${escrowId})`)}
+                      disabled={txLoading || !escrowResult}
+                      className="bg-blue-600 hover:bg-blue-500 disabled:opacity-30 text-white text-xs px-4 py-2 rounded-xl transition shrink-0"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    An empty result is rejected on chain: it was how a worker could once take an escrow without
+                    doing anything.
+                  </p>
+                </div>
+              )}
+
+              <h3 className="text-sm font-semibold text-white mt-6 mb-3">On-chain lifecycle</h3>
               <div className="space-y-4 text-xs text-slate-300">
                 {[
                   ['Locked', <>USDC sits in <code>ArcAgentGateway</code>. An <code>escrowId</code> is emitted by <code>EscrowCreated</code>.</>],
-                  ['Delivered', <>Before the deadline, the worker calls <code>submitResult</code>. This pays nothing — it publishes the result and opens a {REVIEW_WINDOW_LABEL} review window.</>],
-                  ['Released', <>The payer calls <code>releaseEscrow</code> whenever satisfied. If the payer stays silent, the worker can call <code>claimSubmittedEscrow</code> once the window closes, so delivered work cannot be stranded.</>],
-                  ['Refunded', <>If the deadline passes with no result submitted, the payer calls <code>refundEscrow</code>. Both paths credit a claimable balance — nothing is ever pushed to an address that might revert.</>],
+                  ['Delivered', <>Strictly before the deadline, the worker calls <code>submitResult</code> with a non-empty payload. This pays nothing. An empty result is refused on chain.</>],
+                  ['Reviewed', <>Until <code>max(deadline, submitted + {REVIEW_WINDOW_LABEL})</code> the payer may <code>releaseEscrow</code> or <code>rejectResult</code>. A rejection returns the escrow to pending, so the worker can try again while the deadline allows.</>],
+                  ['Claimed or refunded', <>Silence pays the worker, via <code>claimSubmittedEscrow</code>. Nothing acceptable delivered by the deadline, and the payer calls <code>refundEscrow</code>; a submission left uncollected for 30 days becomes refundable too, so nothing can be stranded. Every path credits a claimable balance — nothing is ever pushed.</>],
                 ].map(([title, body], i) => (
                   <div className="flex gap-3 items-start" key={title}>
                     <div className="w-6 h-6 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 font-mono">{i + 1}</div>

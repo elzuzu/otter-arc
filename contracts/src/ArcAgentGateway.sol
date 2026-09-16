@@ -69,13 +69,20 @@ contract ArcAgentGateway {
     }
 
     /**
-     * @notice How long the payer has to react after a worker submits a result.
-     * @dev Without it, a worker could take the funds the instant the escrow is created. With it,
-     *      the worker must publish a result and then wait, and the payer can release earlier at
-     *      any time. One hour is chosen for agents, which operate at machine speed; a supervising
-     *      human or agent still has a realistic window to act.
+     * @notice The minimum time a payer always gets to review a submitted result.
+     * @dev The payer's real deadline is `max(escrow.deadline, submittedAt + REVIEW_WINDOW)`: the
+     *      deadline they chose, but never less than this much after a submission actually lands.
+     *      Without the floor, a worker submitting one second before the deadline would leave the
+     *      payer no time to reject. One hour suits agents, which operate at machine speed.
      */
     uint256 public constant REVIEW_WINDOW = 1 hours;
+
+    /**
+     * @notice How long a worker has to collect an escrow the payer did not contest.
+     * @dev After this, the payer may refund a still-unclaimed submission. Without it, a worker
+     *      that loses its key — or that cannot receive value — would freeze the funds forever.
+     */
+    uint256 public constant CLAIM_WINDOW = 30 days;
 
     uint256 public serviceCounter;
     uint256 public escrowCounter;
@@ -104,6 +111,7 @@ contract ArcAgentGateway {
     event EscrowResultSubmitted(
         uint256 indexed escrowId, address indexed worker, bytes resultData, uint256 claimableAt
     );
+    event EscrowResultRejected(uint256 indexed escrowId, address indexed payer);
     event EscrowReleased(uint256 indexed escrowId, address indexed worker, uint256 amount, address releasedBy);
     event EscrowRefunded(uint256 indexed escrowId, address indexed payer, uint256 amount);
     event FundsWithdrawn(address indexed recipient, uint256 amount);
@@ -172,13 +180,19 @@ contract ArcAgentGateway {
 
     /**
      * @notice Pay for an agent service with native USDC.
+     * @dev `maxFee` is the price the caller agreed to. Without it a provider could front-run the
+     *      call with `updateService`, raise the fee to the whole `msg.value`, and keep the lot —
+     *      the caller having signed for a far smaller number. Pass the fee you read from
+     *      `services(serviceId)`; anything charged above it reverts.
      * @param serviceId Target service identifier
      * @param queryHash Hash of the request payload or prompt
+     * @param maxFee Highest fee, in native units, the caller is willing to be charged
      */
-    function payForService(uint256 serviceId, bytes32 queryHash) external payable nonReentrant {
+    function payForService(uint256 serviceId, bytes32 queryHash, uint256 maxFee) external payable nonReentrant {
         Service storage s = services[serviceId];
         require(s.id != 0, "Service does not exist");
         require(s.active, "Service is not active");
+        require(s.fee <= maxFee, "Fee exceeds caller's limit");
         require(msg.value >= s.fee, "Insufficient native USDC sent");
 
         s.totalCalls += 1;
@@ -232,29 +246,61 @@ contract ArcAgentGateway {
     }
 
     /**
-     * @notice The worker publishes its result on chain, which starts the payer's review window.
-     * @dev Submitting does not pay the worker. Funds become claimable only when the payer releases
-     *      them, or once REVIEW_WINDOW has elapsed with no objection. A result submitted after the
-     *      deadline is rejected, so a worker cannot sit on an expired escrow and then race the
-     *      payer's refund.
+     * @notice The point until which the payer may still reject or release a submitted result.
+     * @dev The later of the deadline they chose and REVIEW_WINDOW after the submission landed, so
+     *      a last-second submission cannot deprive the payer of a chance to look at it.
+     */
+    function reviewDeadline(uint256 escrowId) public view returns (uint256) {
+        Escrow storage e = escrows[escrowId];
+        uint256 floorTime = e.submittedAt + REVIEW_WINDOW;
+        return e.deadline > floorTime ? e.deadline : floorTime;
+    }
+
+    /**
+     * @notice The worker publishes its result on chain, which opens the payer's review.
+     * @dev Submitting pays nothing. An empty result is rejected outright: without that, a worker
+     *      could convert a refundable escrow into a claim by sending zero bytes. Submission must
+     *      land strictly before the deadline, so a worker cannot wait out the clock and then take
+     *      a payout the payer was about to reclaim.
      */
     function submitResult(uint256 escrowId, bytes calldata resultData) external nonReentrant {
         Escrow storage e = escrows[escrowId];
         require(e.id != 0, "Escrow not found");
         require(e.status == EscrowStatus.PENDING, "Escrow not pending");
         require(msg.sender == e.worker, "Only worker can submit");
-        require(block.timestamp <= e.deadline, "Deadline has passed");
+        require(block.timestamp < e.deadline, "Deadline has passed");
+        require(resultData.length > 0, "Result required");
 
         e.status = EscrowStatus.SUBMITTED;
         e.submittedAt = block.timestamp;
         e.resultData = resultData;
 
-        emit EscrowResultSubmitted(escrowId, e.worker, resultData, block.timestamp + REVIEW_WINDOW);
+        emit EscrowResultSubmitted(escrowId, e.worker, resultData, reviewDeadline(escrowId));
+    }
+
+    /**
+     * @notice The payer refuses a submitted result, returning the escrow to PENDING.
+     * @dev This is the payer's side of the bargain: without it the review window would be a delay
+     *      rather than a review, and a worker could take the funds for anything at all. The worker
+     *      may submit again while the deadline still allows it.
+     */
+    function rejectResult(uint256 escrowId) external nonReentrant {
+        Escrow storage e = escrows[escrowId];
+        require(e.id != 0, "Escrow not found");
+        require(e.status == EscrowStatus.SUBMITTED, "No result under review");
+        require(msg.sender == e.payer, "Only payer can reject");
+        require(block.timestamp <= reviewDeadline(escrowId), "Review period is over");
+
+        e.status = EscrowStatus.PENDING;
+        e.submittedAt = 0;
+        e.resultData = "";
+
+        emit EscrowResultRejected(escrowId, e.payer);
     }
 
     /**
      * @notice The payer accepts the work and releases the escrow to the worker.
-     * @dev Callable at any time before a refund, including before the worker has submitted, so a
+     * @dev Callable at any time before the escrow closes, including before a submission, so a
      *      satisfied payer is never forced to wait.
      */
     function releaseEscrow(uint256 escrowId) external nonReentrant {
@@ -270,16 +316,16 @@ contract ArcAgentGateway {
     }
 
     /**
-     * @notice The worker claims a submitted result the payer has neither released nor answered.
-     * @dev This is what stops a payer from simply going silent after receiving the work. It is
-     *      only reachable from SUBMITTED, so it cannot be used to drain a fresh escrow.
+     * @notice The worker collects a result the payer neither released nor rejected in time.
+     * @dev Silence pays the worker. This is what stops a payer from taking delivery and then
+     *      simply never answering.
      */
     function claimSubmittedEscrow(uint256 escrowId) external nonReentrant {
         Escrow storage e = escrows[escrowId];
         require(e.id != 0, "Escrow not found");
         require(e.status == EscrowStatus.SUBMITTED, "No result under review");
         require(msg.sender == e.worker, "Only worker can claim");
-        require(block.timestamp > e.submittedAt + REVIEW_WINDOW, "Review window still open");
+        require(block.timestamp > reviewDeadline(escrowId), "Review period still open");
 
         e.status = EscrowStatus.RELEASED;
         claimableBalances[e.worker] += e.amount;
@@ -288,17 +334,27 @@ contract ArcAgentGateway {
     }
 
     /**
-     * @notice The payer reclaims an escrow whose deadline passed with no result submitted.
-     * @dev Requires PENDING: once a result is under review the worker's claim is protected, so the
-     *      payer cannot refund out from under delivered work. The amount is credited to the
-     *      payer's claimable balance rather than pushed, so a contract payer cannot be bricked.
+     * @notice The payer reclaims an escrow that was never delivered, or never collected.
+     * @dev Two cases, and between them no escrow can be stranded:
+     *      - PENDING past the deadline: nothing was delivered, or everything delivered was
+     *        rejected while there was still time to redo it.
+     *      - SUBMITTED past the review period plus CLAIM_WINDOW: the worker won the escrow by
+     *        default and then never took it, so the value would otherwise sit here forever.
+     *      The amount is credited to the payer's claimable balance rather than pushed, so a
+     *      contract payer cannot be bricked.
      */
     function refundEscrow(uint256 escrowId) external nonReentrant {
         Escrow storage e = escrows[escrowId];
         require(e.id != 0, "Escrow not found");
-        require(e.status == EscrowStatus.PENDING, "Escrow already closed");
         require(msg.sender == e.payer, "Only payer can refund");
-        require(block.timestamp > e.deadline, "Deadline not yet passed");
+
+        if (e.status == EscrowStatus.PENDING) {
+            require(block.timestamp > e.deadline, "Deadline not yet passed");
+        } else if (e.status == EscrowStatus.SUBMITTED) {
+            require(block.timestamp > reviewDeadline(escrowId) + CLAIM_WINDOW, "Worker may still claim");
+        } else {
+            revert("Escrow already closed");
+        }
 
         e.status = EscrowStatus.REFUNDED;
         claimableBalances[e.payer] += e.amount;

@@ -44,7 +44,7 @@ Solidity 0.8.33 · Foundry · viem · React 19 · Tailwind 4 · Vite
 ## Live deployment on Arc mainnet
 
 ```
-App:      <PENDING — GitHub Pages blocked by an account billing lock; see README>
+App:      https://elzuzu.github.io/otter-arc/
 Contract: <FILL AFTER npm run deploy>
 Explorer: https://explorer.arc.io/address/<CONTRACT>
 ```
@@ -78,11 +78,15 @@ On a normal EVM chain, paying a stablecoin means `approve` followed by `transfer
 transactions, two gas payments, and an allowance left sitting on chain. On Arc, USDC **is** the gas
 token, so a payment is just `msg.value`. ArcPay is built around that: an on-chain registry where a
 provider lists an agent service and its per-call fee, a single `payForService(uint256,bytes32)`
-call that settles it with no approval round-trip and credits any overpayment back, and an
-optimistic escrow for asynchronous multi-step agent work: the worker publishes a result before the
-deadline, which opens a one-hour review window; the payer can release at any time; a silent payer
-cannot strand delivered work, and a worker who never delivers cannot block the refund. Neither side
-can take the funds unilaterally. Every credit — fees, released escrows, refunds, overpayment —
+call that settles it with no approval round-trip, carries the caller's own maximum-fee bound so a
+provider cannot front-run the price, and credits any overpayment back. Alongside it, an optimistic
+escrow for asynchronous multi-step agent work: the worker publishes a non-empty result strictly
+before the deadline, which pays nothing; the payer then has until `max(deadline, submitted + 1h)`
+to release or to reject, a rejection returns the escrow to pending so the worker can retry, and if
+the payer says nothing the worker claims it. The rule is explicit — **the payer decides before the
+deadline, and silence pays the worker** — and no escrow can be stranded, because a submission left
+uncollected for 30 days becomes refundable. Adjudicating a genuine disagreement needs a third party
+and is deliberately out of scope. Every credit — fees, released escrows, refunds, overpayment —
 accrues to a claimable balance and is pulled by the earner, so the contract never pushes value to
 an address that might revert.
 
@@ -117,8 +121,9 @@ its balance both ways, see the `1e12` factor and the truncated remainder.
   conversion truncates by less than one millionth of a USDC, and exposes
   `nativeBalanceAsErc20(address)` so the equality can be checked on chain. A fork test asserts it
   against live Arc; a UI panel shows it live.
-- **Sub-cent economics.** Deployment measured at ~1.6M gas ≈ **0.032 USDC**, and a service call
-  costs a fraction of a cent, which is what makes per-call agent pricing viable at all.
+- **Sub-cent economics.** `eth_estimateGas` on live Arc returns 2,002,641 gas for this bytecode,
+  ≈ **0.040 USDC** at 20 gwei, and a service call costs a fraction of a cent. That is what makes
+  per-call agent pricing viable at all. (An estimate from the chain, not a past deployment.)
 - **Arc's actual predeploy topology.** `0x3600…0000` is a proxy; `totalSupply()` routes to an Arc
   precompile at `0x1800…0000` that holds no bytecode and that a local EVM rejects with
   `OpcodeNotFound`. Our fork test reads that one value over RPC instead. Documented in the README
@@ -127,7 +132,7 @@ its balance both ways, see the `1e12` factor and the truncated remainder.
 ## How to verify the claims
 
 ```bash
-npm test          # 21 tests; 4 fork Arc mainnet and assert against the live chain
+npm test          # 26 tests; 4 fork Arc mainnet and assert against the live chain
 npm run check-balance   # prints any address's balance in both representations
 npm run check-links     # every URL in the docs and source must resolve
 ```

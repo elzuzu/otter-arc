@@ -62,16 +62,25 @@ Divide the first result by `1e12` and you get the second, exactly.
 ## What ArcPay does
 
 **1. Pay-per-call agent paywall.** Providers register an agent service in an on-chain registry with
-a per-invocation fee. Callers pay with a single `payForService(uint256,bytes32)` transaction —
-`msg.value` carries the fee, no ERC-20 `approve` + `transferFrom` round-trip, because on Arc the
-stablecoin *is* the gas token. Overpayment is refunded in the same call.
+a per-invocation fee. Callers pay with a single `payForService(uint256,bytes32,uint256)`
+transaction — `msg.value` carries the fee, no ERC-20 `approve` + `transferFrom` round-trip, because
+on Arc the stablecoin *is* the gas token. The third argument is the highest fee the caller accepts,
+so a provider cannot raise the price in front of the transaction and keep the whole `msg.value`.
+Overpayment is credited back to the caller's claimable balance.
 
 **2. Autonomous micro-escrow.** `createEscrow` locks native USDC against a task hash and a
-deadline. The worker publishes its result with `submitResult` before the deadline, which pays
-nothing and opens a one-hour review window; the payer can `releaseEscrow` at any point, and if the
-payer goes silent the worker can `claimSubmittedEscrow` once the window closes. If nothing is ever
-delivered, the payer calls `refundEscrow` after the deadline. Neither side can take the funds
-unilaterally. Arbitrating a genuinely *disputed* result needs a third party and is out of scope.
+deadline. The worker publishes a non-empty result with `submitResult`, strictly before the
+deadline; this pays nothing. The payer then has until `max(deadline, submittedAt + 1 hour)` to
+either `releaseEscrow` or `rejectResult` — a rejection returns the escrow to pending, so the worker
+can try again while the deadline allows. If the payer says nothing, the worker takes it with
+`claimSubmittedEscrow`: silence pays the worker. If nothing acceptable is ever delivered, the payer
+calls `refundEscrow` after the deadline, and a submission the worker never collects becomes
+refundable after a further 30 days, so no escrow can be stranded.
+
+The rule is therefore explicit: **the payer decides before the deadline, and silence pays the
+worker.** A worker cannot take the money for work the payer refuses, and a payer cannot take
+delivery and then stay quiet. What this does *not* do is adjudicate a genuine disagreement — that
+needs a third party, and is deliberately out of scope.
 
 **3. Pull-payment settlement.** Every credit — fees, released escrows, refunds, and overpayment on
 a service call — lands in `claimableBalances` and is withdrawn by the earner. The contract never
@@ -111,7 +120,7 @@ path. There is deliberately no `receive()`: stray value would be unrecoverable, 
 
 ```bash
 npm install
-npm test            # 13 tests, 4 of them forked against live Arc Mainnet
+npm test            # 26 tests, 4 of them forked against live Arc Mainnet
 npm run check-balance
 ```
 
@@ -127,8 +136,11 @@ npm run seed             # registers demo services and makes one real paid call
 ```
 
 `npm run deploy` prices the deployment before spending anything and refuses to broadcast unless
-the balance covers three times the estimate. Measured cost at the current gas price:
-**~1.6M gas ≈ 0.032 USDC**.
+the balance covers three times the estimate. `eth_estimateGas` against Arc Mainnet for the current
+bytecode returns **2,002,641 gas**, which at 20 gwei is **≈ 0.040 USDC**. That is an estimate from
+the live chain, not a figure from an actual deployment — nothing has been deployed yet, and gas
+price on Arc has moved between 20 and 39 gwei since mainnet opened, so treat it as an order of
+magnitude.
 
 ### Frontend
 
@@ -142,11 +154,11 @@ prebuilt `gh-pages` branch, with `.github/workflows/deploy-pages.yml` available 
 source alternative. Vite's `base` defaults to `/otter-arc/` for that sub-path; set `BASE_PATH=/`
 to build for a root-hosted deploy.
 
-**The hosted site is not up yet**: GitHub Actions and Pages builds are both blocked on this
-account by a billing lock, so neither the CI badge nor the Pages build can run. The built bundle
-is verified locally (`npm run build`, then serve `frontend/dist` under `/otter-arc/`). The link
-here will be added once the site answers, and not before — `npm run check-links` fails on a URL
-that does not resolve, which is the point of it.
+Note on CI: user-defined GitHub Actions workflows are currently blocked on this account by a
+billing lock, so `test.yml` shows no green badge. The Pages build from a branch is a built-in
+GitHub job and is unaffected, which is why the site is live regardless. Everything the CI would
+run — `forge test`, `forge fmt --check`, the frontend build and lint, and `check-links` — passes
+locally and can be reproduced with the commands above.
 
 The dashboard reads the service registry from chain (not a hardcoded list), sends real contract
 calls, and carries a **Decimals Proof** panel that reads any address's balance both ways and shows

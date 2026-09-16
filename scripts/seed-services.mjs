@@ -94,7 +94,9 @@ async function main() {
     address,
     abi,
     functionName: 'payForService',
-    args: [1n, keccak256(toHex('arcpay:seed:first-agent-call'))],
+    // The fee we just read is also the ceiling we accept, so a provider cannot raise the price
+    // between the read and this transaction and keep the whole value.
+    args: [1n, keccak256(toHex('arcpay:seed:first-agent-call')), fee],
     value: fee,
   });
   const payReceipt = await publicClient.waitForTransactionReceipt({ hash: payHash });
