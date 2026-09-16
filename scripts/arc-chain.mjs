@@ -8,11 +8,22 @@
  * a trillion.
  */
 
-export const ARC_RPC_URLS = [
-  process.env.ARC_RPC_URL || 'https://rpc.mainnet.arc.io',
+const PUBLIC_ARC_RPC_URLS = [
+  'https://rpc.mainnet.arc.io',
   'https://rpc.drpc.mainnet.arc.io',
   'https://rpc.quicknode.mainnet.arc.io',
 ];
+
+/**
+ * Endpoints the scripts will talk to, in order.
+ *
+ * Setting ARC_RPC_URL replaces the list rather than prepending to it. Keeping the public
+ * endpoints as fallbacks behind a private or local node would mean a transaction quietly
+ * reaching mainnet when the node you pointed at was simply unreachable.
+ */
+export const ARC_RPC_URLS = process.env.ARC_RPC_URL
+  ? [process.env.ARC_RPC_URL]
+  : PUBLIC_ARC_RPC_URLS;
 
 export const ARC_EXPLORER = 'https://explorer.arc.io';
 

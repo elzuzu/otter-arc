@@ -527,7 +527,8 @@ export default function App() {
               <p className="text-xs text-slate-400 mt-1 max-w-3xl">
                 Every card below is a live read of <code className="text-blue-400">services(uint256)</code> on the deployed
                 contract, not a hardcoded list. Paying one encodes a real{' '}
-                <code className="text-blue-400">payForService(uint256,bytes32)</code> call, so the call counter and the
+                <code className="text-blue-400">payForService(uint256,bytes32,uint256)</code> call — the third argument being
+                the highest fee you accept, so the provider cannot raise it in front of you. The call counter and the
                 provider&apos;s claimable balance move on chain. Settlement is a plain{' '}
                 <code className="text-blue-400">msg.value</code> transfer: USDC is the gas token here, so there is no
                 ERC-20 approval round-trip.

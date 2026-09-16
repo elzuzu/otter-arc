@@ -42,7 +42,10 @@ async function main() {
   }
 
   console.log(`[+] Deployer       : ${account.address}`);
-  console.log(`[+] Chain          : Arc Mainnet (${chainId})`);
+  console.log(`[+] Chain          : ${chainId}`);
+  // Spell out the endpoint: a local fork of Arc also reports chain 5042, and a deployment banner
+  // that says "Arc Mainnet" either way is how a fork run gets mistaken for the real thing.
+  console.log(`[+] RPC            : ${ARC_RPC_URLS[0]}`);
 
   const artifactPath = path.resolve('scripts/ArcAgentGateway.json');
   if (!fs.existsSync(artifactPath)) {
@@ -97,7 +100,7 @@ async function main() {
   }
 
   console.log('\n======================================================');
-  console.log('  DEPLOYED ON ARC MAINNET');
+  console.log(`  DEPLOYED VIA ${ARC_RPC_URLS[0]}`);
   console.log('======================================================');
   console.log(`[+] Contract       : ${deployedAddress}`);
   console.log(`    ${addressUrl(deployedAddress)}`);

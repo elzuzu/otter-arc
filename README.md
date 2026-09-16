@@ -135,6 +135,20 @@ npm run deploy           # builds, syncs the artifact, estimates gas, then deplo
 npm run seed             # registers demo services and makes one real paid call
 ```
 
+Rehearse it against a local fork before spending anything — `ARC_RPC_URL` and the frontend's
+`VITE_ARC_RPC_URL` both *replace* the endpoint list rather than prepending to it, so a run aimed at
+a fork cannot fall through to mainnet:
+
+```bash
+anvil --fork-url https://rpc.mainnet.arc.io --port 8555 &
+ARC_RPC_URL=http://127.0.0.1:8555 PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  npm run deploy && ARC_RPC_URL=http://127.0.0.1:8555 PRIVATE_KEY=0xac09…ff80 npm run seed
+VITE_ARC_RPC_URL=http://127.0.0.1:8555 npm run dev
+```
+
+That is the same code path as a real deployment, against a chain that reports the same chain ID
+and the same predeploys.
+
 `npm run deploy` prices the deployment before spending anything and refuses to broadcast unless
 the balance covers three times the estimate. `eth_estimateGas` against Arc Mainnet for the current
 bytecode returns **2,002,641 gas**, which at 20 gwei is **≈ 0.040 USDC**. That is an estimate from

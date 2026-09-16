@@ -10,11 +10,21 @@ import { createPublicClient, fallback, http } from 'viem';
 
 export const ARC_CHAIN_ID = 5042;
 
-export const ARC_RPC_URLS = [
+const PUBLIC_ARC_RPC_URLS = [
   'https://rpc.mainnet.arc.io',
   'https://rpc.drpc.mainnet.arc.io',
   'https://rpc.quicknode.mainnet.arc.io',
 ];
+
+/**
+ * Endpoints the dashboard reads from, in order.
+ *
+ * VITE_ARC_RPC_URL replaces the list rather than prepending to it, so pointing the app at a local
+ * Arc fork for a demo cannot silently fall through to mainnet when that fork is down.
+ */
+export const ARC_RPC_URLS = import.meta.env?.VITE_ARC_RPC_URL
+  ? [import.meta.env.VITE_ARC_RPC_URL]
+  : PUBLIC_ARC_RPC_URLS;
 
 export const ARC_EXPLORER = 'https://explorer.arc.io';
 
