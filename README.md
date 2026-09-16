@@ -188,10 +188,16 @@ source alternative. Vite's `base` defaults to `/otter-arc/` for that sub-path; s
 to build for a root-hosted deploy.
 
 Note on CI: user-defined GitHub Actions workflows are currently blocked on this account by a
-billing lock, so `test.yml` shows no green badge. The Pages build from a branch is a built-in
-GitHub job and is unaffected, which is why the site is live regardless. Everything the CI would
-run — `forge test`, `forge fmt --check`, the frontend build and lint, and `check-links` — passes
-locally and can be reproduced with the commands above.
+billing lock — each push queued them, failed in about four seconds with "The job was not started
+because your account is locked due to a billing issue", and mailed a failure notice. Their
+automatic triggers are therefore switched off and they run on `workflow_dispatch` only; the
+definitions are kept because they document exactly what CI runs, and the `push`/`pull_request`
+keys go back in once billing is sorted.
+
+None of that affects the live site: GitHub Pages serves the prebuilt `gh-pages` branch through the
+built-in `pages build and deployment` job, which is not one of this repository's workflows and runs
+fine. Everything the CI would run — `forge test`, `forge fmt --check`, the frontend build and lint,
+and `check-links` — passes locally and is reproducible with the commands above.
 
 The dashboard reads the service registry from chain (not a hardcoded list), sends real contract
 calls, and carries a **Decimals Proof** panel that reads any address's balance both ways and shows

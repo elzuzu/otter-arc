@@ -2,9 +2,20 @@ name: CI
 
 permissions: {}
 
+# Automatic triggers are deliberately switched off.
+#
+# GitHub Actions is blocked on this account by a billing lock, so every push queued this workflow,
+# failed it in about four seconds with "The job was not started because your account is locked due
+# to a billing issue", and mailed a failure notice. Twenty-three of those in one afternoon.
+#
+# The definition is kept — it documents exactly what CI runs, and everything in it passes locally
+# (see the README) — but it only runs on demand now. To restore push/PR triggers once billing is
+# sorted, put back the `push:` and `pull_request:` keys below.
+#
+# This does not affect the live site: GitHub Pages serves the prebuilt gh-pages branch through the
+# built-in `pages build and deployment` job, which is not one of this repository's workflows and
+# runs fine.
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 jobs:
