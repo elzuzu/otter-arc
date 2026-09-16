@@ -2,5 +2,12 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+optimizer = true
+optimizer_runs = 200
+
+# Arc Mainnet. Referenced by name from fork tests via vm.rpcUrl("arc"), so the proof of the
+# 18/6 decimal relationship runs on a plain `forge test` with no extra CLI flag.
+[rpc_endpoints]
+arc = "https://rpc.mainnet.arc.io"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

@@ -1,28 +1,49 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {ArcDecimals, IArcUsdc} from "./ArcDecimals.sol";
+
 /**
  * @title ArcAgentGateway
  * @author OtterArc Team
- * @notice High-performance, native-USDC micro-payment and autonomous escrow gateway built specifically for Arc Mainnet (Chain ID 5042).
+ * @notice Native-USDC micro-payment and autonomous escrow gateway built for Arc Mainnet (Chain ID 5042).
  *
  * Key Arc-Native Architecture:
- * 1. Native Gas Asset: USDC (6 Decimals: 1 USDC = 1,000,000 units).
- * 2. Pay-per-Call: Direct micro-payments for autonomous AI agent tool execution.
+ * 1. Native Gas Asset: USDC is the gas token. At the EVM level it carries **18 decimals**
+ *    (`msg.value`, `address.balance`), while the USDC ERC-20 predeploy at
+ *    `0x3600000000000000000000000000000000000000` carries **6**. Both views read one and the
+ *    same balance, related by a factor of `1e12`. Every amount in this contract is denominated
+ *    in native units; see `ArcDecimals` for the conversion and `nativeBalanceAsErc20` for a
+ *    live on-chain demonstration of the equality.
+ * 2. Pay-per-Call: Direct micro-payments for autonomous AI agent tool execution, settled with
+ *    `msg.value` and no ERC-20 approval round-trip.
  * 3. Micro-Escrow: Time-locked autonomous escrows for asynchronous agent workflows.
  * 4. Pull-over-Push Security: Reentrancy protection with isolated provider balances.
  */
 contract ArcAgentGateway {
-    // Arc native gas token decimals
-    uint8 public constant DECIMALS = 6;
-    uint256 public constant ONE_USDC = 1_000_000;
+    using ArcDecimals for uint256;
+
+    /// @notice Decimals of Arc's native gas asset as seen by `msg.value`.
+    uint8 public constant NATIVE_DECIMALS = ArcDecimals.NATIVE_DECIMALS;
+
+    /// @notice Decimals of the USDC ERC-20 predeploy on Arc.
+    uint8 public constant ERC20_DECIMALS = ArcDecimals.ERC20_DECIMALS;
+
+    /// @notice Ratio between the native and ERC-20 representations (10 ** 12).
+    uint256 public constant SCALE = ArcDecimals.SCALE;
+
+    /// @notice Canonical USDC ERC-20 predeploy address on Arc Mainnet.
+    address public constant USDC_ERC20 = ArcDecimals.USDC_ERC20;
+
+    /// @notice One USDC expressed in native units (18 decimals).
+    uint256 public constant ONE_USDC = 1e18;
 
     struct Service {
         uint256 id;
         address payable provider;
         string name;
         string endpoint;
-        uint256 fee; // in micro-USDC (6 decimals)
+        uint256 fee; // native units (18 decimals); 1 USDC == ONE_USDC == 1e18
         bool active;
         uint256 totalCalls;
         uint256 totalRevenue;
@@ -101,7 +122,7 @@ contract ArcAgentGateway {
      * @notice Register a new agent service or micro-API endpoint.
      * @param name Human-readable service name (e.g. "Arc-LLM-Inference-Fast")
      * @param endpoint URL or decentralized ID
-     * @param fee Micro-USDC price per invocation (e.g. 5000 = 0.005 USDC)
+     * @param fee Price per invocation in native units (18 decimals), e.g. 5e15 = 0.005 USDC
      */
     function registerService(
         string calldata name,
@@ -249,6 +270,41 @@ contract ArcAgentGateway {
         require(success, "Withdrawal failed");
 
         emit FundsWithdrawn(msg.sender, amount);
+    }
+
+    /**
+     * @notice Arc's two views of one balance, read live and side by side.
+     * @dev Returns `account`'s native balance (18 decimals) together with what the USDC ERC-20
+     *      predeploy reports for the same account (6 decimals), plus the native remainder that
+     *      the 6-decimal view truncates. The invariant `native / 1e12 == erc20` holds for every
+     *      account on Arc; `remainder` is what that division discards.
+     *      This is the protocol's on-chain proof that it denominates in the correct unit.
+     * @return native Balance in native units (18 decimals).
+     * @return erc20 Balance as reported by the USDC ERC-20 predeploy (6 decimals).
+     * @return remainder Native units discarded by the 6-decimal view, always in [0, 1e12).
+     */
+    function nativeBalanceAsErc20(address account)
+        external
+        view
+        returns (uint256 native, uint256 erc20, uint256 remainder)
+    {
+        native = account.balance;
+        erc20 = IArcUsdc(USDC_ERC20).balanceOf(account);
+        remainder = ArcDecimals.truncationRemainder(native);
+    }
+
+    /**
+     * @notice Convert a native-denominated amount to ERC-20 USDC units, as the predeploy would.
+     */
+    function toErc20Units(uint256 nativeAmount) external pure returns (uint256) {
+        return ArcDecimals.toErc20Units(nativeAmount);
+    }
+
+    /**
+     * @notice Convert an ERC-20 USDC amount to native units. Exact, no rounding.
+     */
+    function toNativeUnits(uint256 erc20Amount) external pure returns (uint256) {
+        return ArcDecimals.toNativeUnits(erc20Amount);
     }
 
     /**
