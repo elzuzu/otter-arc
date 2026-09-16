@@ -99,13 +99,30 @@ async function main() {
 
   console.log('\n--- escrow safety properties are present in the deployed code ---');
   const names = abi.filter((e) => e.type === 'function').map((e) => e.name);
-  for (const fn of ['submitResult', 'rejectResult', 'releaseEscrow', 'claimSubmittedEscrow', 'refundEscrow', 'reviewDeadline']) {
+  for (const fn of [
+    'submitResult', 'rejectResult', 'releaseEscrow', 'claimSubmittedEscrow', 'refundEscrow',
+    'splitEscrow', 'reviewDeadline',
+  ]) {
     check(`exposes ${fn}`, names.includes(fn));
   }
   check('no receive() fallback', !abi.some((e) => e.type === 'receive'));
-  const [reviewWindow, claimWindow] = await Promise.all([read('REVIEW_WINDOW'), read('CLAIM_WINDOW')]);
+
+  // createEscrow must carry the terms a worker prices a job on: the rejection budget and the
+  // redo window are as much a safety surface as the functions above — earlier deployments
+  // guaranteed a full-escrow win for junk regardless of what functions existed.
+  const createEscrowAbi = abi.find((e) => e.type === 'function' && e.name === 'createEscrow');
+  check('createEscrow takes 5 arguments (worker, taskHash, deadline, maxRejections, redoWindow)',
+    !!createEscrowAbi && createEscrowAbi.inputs.length === 5,
+    createEscrowAbi ? `got ${createEscrowAbi.inputs.length}` : 'not found');
+
+  const [reviewWindow, claimWindow, maxRejections, maxTerm, maxRedoWindow] = await Promise.all([
+    read('REVIEW_WINDOW'), read('CLAIM_WINDOW'), read('MAX_REJECTIONS'), read('MAX_TERM'), read('MAX_REDO_WINDOW'),
+  ]);
   check('REVIEW_WINDOW is non-zero', reviewWindow > 0n, `${reviewWindow}s`);
   check('CLAIM_WINDOW is non-zero', claimWindow > 0n, `${claimWindow}s`);
+  check('MAX_REJECTIONS is bounded and non-zero', maxRejections > 0n && maxRejections <= 10n, `${maxRejections}`);
+  check('MAX_TERM is bounded', maxTerm > 0n, `${maxTerm}s (${Number(maxTerm) / 86400} days)`);
+  check('MAX_REDO_WINDOW >= REVIEW_WINDOW', maxRedoWindow >= reviewWindow, `${maxRedoWindow}s`);
 
   console.log('\n======================================================');
   if (failures > 0) {

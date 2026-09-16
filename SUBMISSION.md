@@ -79,14 +79,21 @@ transactions, two gas payments, and an allowance left sitting on chain. On Arc, 
 token, so a payment is just `msg.value`. ArcPay is built around that: an on-chain registry where a
 provider lists an agent service and its per-call fee, a single `payForService(uint256,bytes32,uint256)`
 call that settles it with no approval round-trip, carries the caller's own maximum-fee bound so a
-provider cannot front-run the price, and credits any overpayment back. Alongside it, an optimistic
-escrow for asynchronous multi-step agent work: the worker publishes a non-empty result strictly
-before the deadline, which pays nothing; the payer may then release, or reject while they still
-have budget — the number of rejections being fixed at creation and readable on chain, and each one
-pushing the deadline out so the worker can genuinely answer. Once that budget is spent the next
-delivery stands, and if the payer says nothing the worker claims it. No escrow can be stranded: a
-submission left uncollected for 30 days becomes refundable. Adjudicating a genuine disagreement needs a third party
-and is deliberately out of scope. Every credit — fees, released escrows, refunds, overpayment —
+provider cannot front-run the price, and credits any overpayment back. Alongside it, an escrow whose design was tested to destruction across three adversarial
+review rounds and rebuilt each time. A worker publishes a non-empty result strictly before the
+deadline, which pays nothing. The payer may release, or reject while a fixed, on-chain-visible
+budget remains — each rejection pushing the deadline out by the redo window agreed at creation, so
+"try again" is real rather than a formality. If the payer says nothing, the worker claims it.
+
+The reviews proved something worth stating plainly: an unbounded two-party reject loop always
+hands one side a dominant strategy. A worker could win the whole escrow with one byte of junk by
+outlasting a fixed rejection budget; making the right of refusal unbounded to stop that just
+handed the payer the same unilateral win instead. The fix does not pretend to solve this by being
+clever — it bounds it. Once the budget is spent, the payer's move is `splitEscrow`: 50/50, closing
+the dispute. Junk nets a worker at most half the escrow, never all of it. Adjudicating who was
+actually right needs a third party and is deliberately out of scope; the contract bounds what
+either side can extract by being unreasonable, and does not claim to judge quality.
+Every credit — fees, released escrows, refunds, overpayment —
 accrues to a claimable balance and is pulled by the earner, so the contract never pushes value to
 an address that might revert.
 
@@ -121,6 +128,10 @@ its balance both ways, see the `1e12` factor and the truncated remainder.
   conversion truncates by less than one millionth of a USDC, and exposes
   `nativeBalanceAsErc20(address)` so the equality can be checked on chain. A fork test asserts it
   against live Arc; a UI panel shows it live.
+- **A bounded escrow, not a naive one.** `submitResult` / `rejectResult` / `releaseEscrow` /
+  `claimSubmittedEscrow` / `refundEscrow` / `splitEscrow` form a state machine sized to close two
+  successive full-escrow exploits found by adversarial review — one favoring the worker, the
+  inverse favoring the payer — without pretending an on-chain contract can judge work quality.
 - **Cheap enough for per-call pricing.** `eth_estimateGas` on live Arc returns **2,110,584 gas**
   for this bytecode. The price is another matter: mainnet is days old and `eth_gasPrice` moved
   between **20 and 225 gwei** while this was being written, i.e. 0.042 to 0.47 USDC for the same
@@ -134,7 +145,7 @@ its balance both ways, see the `1e12` factor and the truncated remainder.
 ## How to verify the claims
 
 ```bash
-npm test                  # 30 tests; 4 fork Arc mainnet and assert against the live chain
+npm test                  # 36 tests; 4 fork Arc mainnet and assert against the live chain
 npm run check-balance     # prints any address's balance in both representations
 npm run verify-deployment # reads the deployment back off-chain and checks every claim above
 npm run check-links       # the URLs in the docs and source must resolve

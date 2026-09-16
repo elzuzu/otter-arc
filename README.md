@@ -68,36 +68,38 @@ on Arc the stablecoin *is* the gas token. The third argument is the highest fee 
 so a provider cannot raise the price in front of the transaction and keep the whole `msg.value`.
 Overpayment is credited back to the caller's claimable balance.
 
-**2. Autonomous micro-escrow.** `createEscrow` locks native USDC against a task hash, a deadline,
-and a **number of rejections the payer reserves** — fixed at creation and readable on chain, so the
-worker knows the terms before starting. The worker publishes a non-empty result with `submitResult`
-strictly before the deadline; this pays nothing. The payer may then `releaseEscrow`, or
-`rejectResult` while they still have budget — and **a rejection pushes the deadline out by at least
-one hour**, so "try again" is a real option rather than a formality. Once the budget is spent, the
-next delivery stands. If the payer says nothing, the worker takes it with `claimSubmittedEscrow`.
+**2. Autonomous micro-escrow.** `createEscrow` locks native USDC against a task hash, a
+deadline (at most `MAX_TERM`, one year), a **number of rejections the payer reserves** (at most
+`MAX_REJECTIONS`), and a **redo window** the worker gets after each rejection (between
+`REVIEW_WINDOW` and `MAX_REDO_WINDOW`). All four are fixed at creation and readable on chain, so
+the worker prices the job before starting. The worker publishes a non-empty result with
+`submitResult` strictly before the deadline; this pays nothing. The payer may then `releaseEscrow`,
+or `rejectResult` while budget remains — **which pushes the deadline out by the agreed redo
+window, never less**, so a late rejection can never collapse a long job into an hour. If the payer
+says nothing, the worker takes it with `claimSubmittedEscrow`.
+
+Three cycles of adversarial review converged on one fact: **an unbounded two-party reject loop
+always hands one side a dominant strategy.** A worker-favoring version let junk win the whole
+escrow by outlasting a fixed rejection budget — submit one byte of nothing, absorb every
+rejection, and the delivery after the budget runs out is unconditionally claimable. Fixing that
+with an *unbounded* right of refusal just moves the problem to the payer, who then wins by
+rejecting forever and outspending the worker in gas.
+
+The design does not pretend to solve this by being clever; it bounds it. Once the rejection budget
+is spent, the payer's move is no longer silence or acceptance — it is `splitEscrow`, which closes
+the dispute 50/50. A worker gambling on junk is capped at half the escrow instead of the whole
+thing; a payer who genuinely received nothing usable still recovers half instead of paying for it
+in full. **What this does not do is adjudicate who was right** — that needs a third party, and is
+deliberately out of scope. The contract bounds the damage either side can extract by being
+unreasonable; it does not claim to judge quality.
+
 If nothing acceptable is ever delivered, the payer refunds after the deadline; a submission the
-worker never collects becomes refundable after a further 30 days, so no escrow is ever stranded.
-
-Two properties do the work here, and both were learned the hard way — earlier versions of this
-contract handed a complete unilateral take first to the worker, then to the payer:
-
-- **A rejection must extend the deadline.** Otherwise the payer can reject inside the window that
-  opens past the deadline, where `submitResult` is already closed, then immediately refund — while
-  keeping the result, which is permanently public in the submission calldata.
-- **The right of refusal must be finite.** Extending the deadline on every rejection with no budget
-  just moves the problem: the payer refuses forever and wins by outspending the worker in gas.
-
-What this still does *not* do is adjudicate a genuine disagreement. That needs a third party and is
-deliberately out of scope; the design bounds the damage either side can do rather than pretending
-to settle who is right.
-
-**3. Pull-payment settlement.** Every credit — fees, released escrows, refunds, and overpayment on
-a service call — lands in `claimableBalances` and is withdrawn by the earner. The contract never
-pushes value to an address that might revert, so a contract counterparty with no `receive()` can
-still be paid. `withdraw()` is the single exit, and the reentrancy guard covers every value-moving
-path. There is deliberately no `receive()`: stray value would be unrecoverable, so it reverts.
+worker never collects becomes refundable after a further 30 days (`CLAIM_WINDOW`), so no escrow is
+ever stranded — including by a `deadline` set absurdly far out, which `MAX_TERM` now forbids.
 
 ---
+
+## Architecture---
 
 ## Architecture
 
@@ -129,7 +131,7 @@ path. There is deliberately no `receive()`: stray value would be unrecoverable, 
 
 ```bash
 npm install
-npm test            # 30 tests, 4 of them forked against live Arc Mainnet
+npm test            # 36 tests, 4 of them forked against live Arc Mainnet
 npm run check-balance
 ```
 

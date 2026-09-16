@@ -53,7 +53,8 @@ contract ArcAgentGateway {
         PENDING,
         SUBMITTED,
         RELEASED,
-        REFUNDED
+        REFUNDED,
+        SPLIT
     }
 
     struct Escrow {
@@ -64,6 +65,7 @@ contract ArcAgentGateway {
         bytes32 taskHash;
         uint256 deadline;
         uint256 submittedAt;
+        uint256 redoWindow;
         uint8 rejectionsLeft;
         EscrowStatus status;
         bytes resultData;
@@ -77,6 +79,17 @@ contract ArcAgentGateway {
      *      payer no time to reject. One hour suits agents, which operate at machine speed.
      */
     uint256 public constant REVIEW_WINDOW = 1 hours;
+
+    /**
+     * @notice Longest term an escrow may be created with.
+     * @dev Without a ceiling, `deadline = type(uint256).max` produces an escrow neither party can
+     *      ever close — `refundEscrow` waits for a deadline that never arrives, and
+     *      `reviewDeadline() + CLAIM_WINDOW` overflows. One bad argument, funds gone for good.
+     */
+    uint256 public constant MAX_TERM = 365 days;
+
+    /// @notice Longest redo window a payer may grant after a rejection.
+    uint256 public constant MAX_REDO_WINDOW = 30 days;
 
     /**
      * @notice Most rejections a payer may reserve when creating an escrow.
@@ -126,6 +139,7 @@ contract ArcAgentGateway {
     );
     event EscrowReleased(uint256 indexed escrowId, address indexed worker, uint256 amount, address releasedBy);
     event EscrowRefunded(uint256 indexed escrowId, address indexed payer, uint256 amount);
+    event EscrowSplit(uint256 indexed escrowId, address indexed payer, address indexed worker, uint256 half);
     event FundsWithdrawn(address indexed recipient, uint256 amount);
 
     // Reentrancy guard
@@ -227,24 +241,30 @@ contract ArcAgentGateway {
 
     /**
      * @notice Lock USDC in an autonomous escrow for a task to be performed by an AI agent.
-     * @dev `maxRejections` is the number of times the payer may send the work back, fixed here and
-     *      readable on chain before the worker starts. It is bounded because a payer who could
-     *      refuse indefinitely would not be reviewing the work, only outlasting the worker.
+     *
+     * @dev Every term is fixed here and readable on chain, so a worker can price the job before
+     *      spending anything: how long it has, how many times the work can be sent back, and how
+     *      long it gets to redo it each time.
+     *
      * @param worker Address of the agent performing the task
      * @param taskHash Hash representing task description and parameters
-     * @param deadline Unix timestamp after which the payer can refund if nothing was delivered
+     * @param deadline Unix timestamp the work must be delivered by, at most MAX_TERM from now
      * @param maxRejections How many times the payer may reject a result, at most MAX_REJECTIONS
+     * @param redoWindow How long the worker gets to answer a rejection, at most MAX_REDO_WINDOW
      */
-    function createEscrow(address payable worker, bytes32 taskHash, uint256 deadline, uint8 maxRejections)
-        external
-        payable
-        nonReentrant
-        returns (uint256 escrowId)
-    {
+    function createEscrow(
+        address payable worker,
+        bytes32 taskHash,
+        uint256 deadline,
+        uint8 maxRejections,
+        uint256 redoWindow
+    ) external payable nonReentrant returns (uint256 escrowId) {
         require(worker != address(0), "Invalid worker");
         require(msg.value > 0, "Must deposit native USDC");
         require(deadline > block.timestamp, "Deadline must be in future");
+        require(deadline <= block.timestamp + MAX_TERM, "Deadline beyond max term");
         require(maxRejections <= MAX_REJECTIONS, "Too many rejections reserved");
+        require(redoWindow >= REVIEW_WINDOW && redoWindow <= MAX_REDO_WINDOW, "Redo window out of range");
 
         escrowId = ++escrowCounter;
         escrows[escrowId] = Escrow({
@@ -255,6 +275,7 @@ contract ArcAgentGateway {
             taskHash: taskHash,
             deadline: deadline,
             submittedAt: 0,
+            redoWindow: redoWindow,
             rejectionsLeft: maxRejections,
             status: EscrowStatus.PENDING,
             resultData: ""
@@ -326,7 +347,10 @@ contract ArcAgentGateway {
         e.submittedAt = 0;
         e.resultData = "";
 
-        uint256 minDeadline = block.timestamp + REVIEW_WINDOW;
+        // The redo window was agreed at creation. Using the one-hour floor here instead would
+        // collapse a seven-day job into an hour the moment the payer rejects at the last instant,
+        // handing them a free option on work already delivered and already public.
+        uint256 minDeadline = block.timestamp + e.redoWindow;
         if (e.deadline < minDeadline) {
             e.deadline = minDeadline;
         }
@@ -367,6 +391,38 @@ contract ArcAgentGateway {
         claimableBalances[e.worker] += e.amount;
 
         emit EscrowReleased(escrowId, e.worker, e.amount, msg.sender);
+    }
+
+    /**
+     * @notice The payer's last resort once the rejection budget is spent: split the escrow.
+     *
+     * @dev Every earlier version of this escrow guaranteed one side a way to take the whole
+     *      amount for nothing. A finite rejection budget stops the payer from refusing forever,
+     *      but by itself it hands the worker a deterministic full payout: submit one junk byte,
+     *      absorb every rejection, and the submission after the budget runs out cannot be turned
+     *      away. This function is what stops that from being profitable. Once `rejectionsLeft`
+     *      reaches zero, the payer's only non-releasing move is no longer silence — it is to cut
+     *      the loss in half and end the dispute deterministically.
+     *
+     *      This does not claim to judge the work; it bounds what either side can extract by being
+     *      unreasonable. A worker gambling on junk gets at most half instead of the whole amount,
+     *      and a payer who genuinely received nothing usable still recovers half instead of paying
+     *      in full for it.
+     */
+    function splitEscrow(uint256 escrowId) external nonReentrant {
+        Escrow storage e = escrows[escrowId];
+        require(e.id != 0, "Escrow not found");
+        require(e.status == EscrowStatus.SUBMITTED, "No result under review");
+        require(msg.sender == e.payer, "Only payer can split");
+        require(e.rejectionsLeft == 0, "Rejections remain; reject instead");
+
+        e.status = EscrowStatus.SPLIT;
+        uint256 workerHalf = e.amount / 2;
+        uint256 payerHalf = e.amount - workerHalf; // exact: the two halves always sum to amount
+        claimableBalances[e.worker] += workerHalf;
+        claimableBalances[e.payer] += payerHalf;
+
+        emit EscrowSplit(escrowId, e.payer, e.worker, workerHalf);
     }
 
     /**

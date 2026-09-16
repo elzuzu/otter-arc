@@ -44,8 +44,8 @@ const contractAddress = deployedAddressInfo?.contractAddress || '';
  */
 const MAX_SERVICES_RENDERED = 24;
 
-/** Mirrors ArcAgentGateway.REVIEW_WINDOW; shown in the escrow copy. */
-const REVIEW_WINDOW_LABEL = '1 hour';
+/** Mirrors ArcAgentGateway.REVIEW_WINDOW: the floor and the default redoWindow this UI offers. */
+const REVIEW_WINDOW_SECONDS = 3600;
 
 /** A funded Arc validator, used to demonstrate the decimal relationship before you connect. */
 const SAMPLE_ADDRESS = '0x5ACCC00D7e4dB975CCbfC2801bC9447f37198797';
@@ -275,7 +275,7 @@ export default function App() {
     }
   };
 
-  /** Lock funds in escrow with a real `createEscrow(address,bytes32,uint256)` call. */
+  /** Lock funds in escrow with a real `createEscrow(address,bytes32,uint256,uint8,uint256)` call. */
   const handleCreateEscrow = async () => {
     setTxLoading(true); setTxSuccess(null); setTxError(null);
     try {
@@ -287,9 +287,11 @@ export default function App() {
       const data = encodeFunctionData({
         abi,
         functionName: 'createEscrow',
-        // How many times you may send the work back. Fixed here and readable on chain, so the
-        // worker knows the terms before starting, and bounded so a refusal cannot be endless.
-        args: [escrowWorker, keccak256(toHex(escrowTask)), deadline, escrowRejections],
+        // maxRejections: how many times you may send the work back, fixed here and readable on
+        // chain so the worker knows the terms before starting, and bounded so refusal cannot be
+        // endless. redoWindow: how long the worker gets to answer each rejection — agreed now, so
+        // a late rejection can never collapse it to less than what was promised.
+        args: [escrowWorker, keccak256(toHex(escrowTask)), deadline, escrowRejections, BigInt(REVIEW_WINDOW_SECONDS)],
       });
       const hash = await window.ethereum.request({
         method: 'eth_sendTransaction',
@@ -325,7 +327,7 @@ export default function App() {
     }
   };
 
-  const ESCROW_STATUS = ['Pending', 'Submitted', 'Released', 'Refunded'];
+  const ESCROW_STATUS = ['Pending', 'Submitted', 'Released', 'Refunded', 'Split'];
 
   const loadEscrow = useCallback(async (id) => {
     if (!contractAddress || !id) { setEscrowInfo(null); return; }
@@ -338,12 +340,12 @@ export default function App() {
         address: contractAddress, abi, functionName: 'reviewDeadline', args: [BigInt(id)],
       });
       // Auto-getter order: id, payer, worker, amount, taskHash, deadline, submittedAt,
-      // rejectionsLeft, status, resultData. bytes and string members are returned, unlike
-      // arrays and mappings, so this tuple is ten wide — an easy place to slip by one.
+      // redoWindow, rejectionsLeft, status, resultData. bytes and string members are returned,
+      // unlike arrays and mappings, so this tuple is eleven wide — an easy place to slip by one.
       setEscrowInfo({
         id: r[0], payer: r[1], worker: r[2], amount: r[3],
-        deadline: r[5], submittedAt: r[6], rejectionsLeft: Number(r[7]),
-        status: Number(r[8]), reviewDeadline: review,
+        deadline: r[5], submittedAt: r[6], redoWindow: r[7], rejectionsLeft: Number(r[8]),
+        status: Number(r[9]), reviewDeadline: review,
       });
     } catch (err) {
       console.error('[ArcPay] escrow read failed', err);
@@ -617,9 +619,10 @@ export default function App() {
               <p className="text-xs text-slate-400 mt-1 mb-6">
                 Locks native USDC in <code className="text-blue-400">createEscrow</code>. You may send the work back
                 a fixed number of times, chosen here and visible on chain before the worker starts; each rejection
-                pushes the deadline out so the worker can answer, and once the budget is spent the next delivery
-                stands. Silence pays the worker. No on-chain arbiter — a genuinely disputed result is out of scope.
-                This signs a real transaction.
+                pushes the deadline out by the agreed redo window so the worker can genuinely answer. Once the
+                budget is spent your last move is not silence — you can <code className="text-blue-400">splitEscrow</code>
+                and take half, so a worker who only ever submits junk is capped at half the escrow, not all of it.
+                No on-chain arbiter — a genuinely disputed result is out of scope. This signs a real transaction.
               </p>
               <div className="space-y-4">
                 <div>
@@ -746,6 +749,18 @@ export default function App() {
                     >
                       Claim (worker)
                     </button>
+                    <button
+                      onClick={() => sendCall('splitEscrow', [BigInt(escrowId)], `splitEscrow(${escrowId})`)}
+                      disabled={txLoading || escrowInfo.rejectionsLeft > 0}
+                      title={
+                        escrowInfo.rejectionsLeft > 0
+                          ? 'Only available once your rejection budget is spent'
+                          : 'Splits the amount 50/50 and closes the escrow'
+                      }
+                      className="col-span-2 bg-purple-600/80 hover:bg-purple-500 disabled:opacity-30 text-white text-xs py-2 rounded-xl transition"
+                    >
+                      Split 50/50 (payer, once out of rejections)
+                    </button>
                   </div>
 
                   <div className="flex gap-2">
@@ -774,8 +789,8 @@ export default function App() {
                 {[
                   ['Locked', <>USDC sits in <code>ArcAgentGateway</code>. An <code>escrowId</code> is emitted by <code>EscrowCreated</code>.</>],
                   ['Delivered', <>Strictly before the deadline, the worker calls <code>submitResult</code> with a non-empty payload. This pays nothing. An empty result is refused on chain.</>],
-                  ['Reviewed', <>Until <code>max(deadline, submitted + {REVIEW_WINDOW_LABEL})</code> the payer may <code>releaseEscrow</code>, or <code>rejectResult</code> if they still have rejections left. A rejection returns the escrow to pending <em>and pushes the deadline out by at least {REVIEW_WINDOW_LABEL}</em>, so &quot;try again&quot; is a real option rather than a formality.</>],
-                  ['Claimed or refunded', <>Silence pays the worker, via <code>claimSubmittedEscrow</code>. Nothing acceptable delivered by the deadline, and the payer calls <code>refundEscrow</code>; a submission left uncollected for 30 days becomes refundable too, so nothing can be stranded. Every path credits a claimable balance — nothing is ever pushed.</>],
+                  ['Reviewed', <>Until <code>max(deadline, submitted + redoWindow)</code> the payer may <code>releaseEscrow</code>, or <code>rejectResult</code> while budget remains. A rejection returns the escrow to pending <em>and pushes the deadline out by the redo window agreed at creation</em>, never less, so &quot;try again&quot; is real rather than a formality.</>],
+                  ['Claimed, split, or refunded', <>Silence pays the worker in full, via <code>claimSubmittedEscrow</code>. Once the payer&apos;s rejection budget is spent, their move is <code>splitEscrow</code> — 50/50, closing the dispute — rather than accepting anything unconditionally. If nothing was ever delivered by the deadline the payer calls <code>refundEscrow</code>; a submission left uncollected for 30 days becomes refundable too, so nothing can be stranded. Every path credits a claimable balance — nothing is ever pushed.</>],
                 ].map(([title, body], i) => (
                   <div className="flex gap-3 items-start" key={title}>
                     <div className="w-6 h-6 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 flex items-center justify-center shrink-0 font-mono">{i + 1}</div>
