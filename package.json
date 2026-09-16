@@ -12,13 +12,20 @@
     "seed": "node scripts/seed-services.mjs",
     "check-balance": "node scripts/check-balance.mjs",
     "check-links": "node scripts/check-links.mjs",
-    "verify": "npm test && npm run check-links"
+    "verify": "npm test && npm run check-links",
+    "publish-site": "bash scripts/publish-site.sh"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
     "viem": "^2.23.0"
   },
-  "keywords": ["arc", "usdc", "agentic", "circle", "microgrants"],
+  "keywords": [
+    "arc",
+    "usdc",
+    "agentic",
+    "circle",
+    "microgrants"
+  ],
   "author": "OtterArc",
   "license": "MIT"
 }

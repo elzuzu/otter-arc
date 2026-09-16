@@ -1,43 +1,48 @@
-name: Deploy frontend to GitHub Pages
+name: Publish dashboard
 
 on:
   push:
     branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
+# GitHub Pages for this repository is served from the prebuilt `gh-pages` branch rather than from
+# a Pages deployment artifact. That choice is deliberate: it keeps the published bundle in the
+# repository, and it means the site can be updated with `npm run publish-site` from a workstation
+# when Actions is unavailable — which is exactly the situation this repository was in when the
+# branch was first published.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: publish-dashboard
   cancel-in-progress: true
 
 jobs:
-  build:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Install frontend dependencies
+      - name: Install
         working-directory: frontend
-        run: npm install
+        run: npm ci
       - name: Build
         working-directory: frontend
         run: npm run build
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: frontend/dist
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish to gh-pages
+        run: |
+          set -euo pipefail
+          cd frontend/dist
+          touch .nojekyll
+          cp index.html 404.html          # Pages serves 404.html for unknown client-side routes
+          git init -q
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "chore: publish dashboard from ${GITHUB_SHA::7}"
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" HEAD:gh-pages
