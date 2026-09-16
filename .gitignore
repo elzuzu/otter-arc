@@ -21,3 +21,4 @@ frontend/node_modules/
 
 # Local working state: references private paths and personal wallet balances.
 tasks/
+scripts/local/
