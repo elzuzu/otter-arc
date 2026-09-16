@@ -137,9 +137,16 @@ npm run dev              # http://localhost:5173
 npm run build
 ```
 
-The dashboard is published to GitHub Pages at <https://elzuzu.github.io/otter-arc/> by
-`.github/workflows/deploy-pages.yml` on every push to `main`. Vite's `base` defaults to
-`/otter-arc/` for that sub-path; set `BASE_PATH=/` to build for a root-hosted deploy.
+The dashboard is configured to publish to GitHub Pages at `elzuzu.github.io/otter-arc/`, from the
+prebuilt `gh-pages` branch, with `.github/workflows/deploy-pages.yml` available as a build-from-
+source alternative. Vite's `base` defaults to `/otter-arc/` for that sub-path; set `BASE_PATH=/`
+to build for a root-hosted deploy.
+
+**The hosted site is not up yet**: GitHub Actions and Pages builds are both blocked on this
+account by a billing lock, so neither the CI badge nor the Pages build can run. The built bundle
+is verified locally (`npm run build`, then serve `frontend/dist` under `/otter-arc/`). The link
+here will be added once the site answers, and not before — `npm run check-links` fails on a URL
+that does not resolve, which is the point of it.
 
 The dashboard reads the service registry from chain (not a hardcoded list), sends real contract
 calls, and carries a **Decimals Proof** panel that reads any address's balance both ways and shows

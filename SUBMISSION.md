@@ -44,7 +44,7 @@ Solidity 0.8.33 · Foundry · viem · React 19 · Tailwind 4 · Vite
 ## Live deployment on Arc mainnet
 
 ```
-App:      https://elzuzu.github.io/otter-arc/
+App:      <PENDING — GitHub Pages blocked by an account billing lock; see README>
 Contract: <FILL AFTER npm run deploy>
 Explorer: https://explorer.arc.io/address/<CONTRACT>
 ```
