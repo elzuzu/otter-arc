@@ -53,4 +53,8 @@ an unbounded reject loop cannot be made fair between two mutually distrusting pa
 7. `refundEscrow` — payer only: a `PENDING` escrow past its deadline, or a `SUBMITTED` one the
    worker left uncollected for `CLAIM_WINDOW`, so nothing is ever stranded.
 
-`reviewDeadline(id)` is `max(deadline, submittedAt + redoWindow)`.
+`reviewDeadline(id)` — when `rejectResult` / `splitEscrow` close and `claimSubmittedEscrow` opens
+— is `max(deadline, submittedAt + REVIEW_WINDOW)`, the fixed one-hour constant, **not**
+`redoWindow`. `redoWindow` plays a different role: it is how far `rejectResult` pushes `deadline`
+forward on a rejection, which is what stops a late rejection from collapsing a long job's answer
+time. The two windows do not otherwise interact.

@@ -81,10 +81,18 @@ contract ArcAgentGateway {
     uint256 public constant REVIEW_WINDOW = 1 hours;
 
     /**
-     * @notice Longest term an escrow may be created with.
-     * @dev Without a ceiling, `deadline = type(uint256).max` produces an escrow neither party can
-     *      ever close — `refundEscrow` waits for a deadline that never arrives, and
+     * @notice Longest `deadline` an escrow may be CREATED with, measured from creation time.
+     * @dev Without this ceiling, `deadline = type(uint256).max` produces an escrow neither party
+     *      can ever close — `refundEscrow` waits for a deadline that never arrives, and
      *      `reviewDeadline() + CLAIM_WINDOW` overflows. One bad argument, funds gone for good.
+     *
+     *      This bounds the *starting* deadline only, not the escrow's total lifetime. Each
+     *      `rejectResult` can still push `deadline` forward by up to `redoWindow`, so a fully
+     *      contested escrow (`MAX_REJECTIONS` rejections, each near the current deadline, each
+     *      extending it by `MAX_REDO_WINDOW`) can run for up to
+     *      `MAX_TERM + MAX_REJECTIONS * MAX_REDO_WINDOW` — about 21 months at the current
+     *      constants. That is intended: it is what "try again while the deadline allows" means
+     *      when taken literally, and it never overflows or strands anything.
      */
     uint256 public constant MAX_TERM = 365 days;
 
@@ -129,7 +137,8 @@ contract ArcAgentGateway {
         uint256 amount,
         bytes32 taskHash,
         uint256 deadline,
-        uint8 maxRejections
+        uint8 maxRejections,
+        uint256 redoWindow
     );
     event EscrowResultSubmitted(
         uint256 indexed escrowId, address indexed worker, bytes resultData, uint256 claimableAt
@@ -281,7 +290,7 @@ contract ArcAgentGateway {
             resultData: ""
         });
 
-        emit EscrowCreated(escrowId, msg.sender, worker, msg.value, taskHash, deadline, maxRejections);
+        emit EscrowCreated(escrowId, msg.sender, worker, msg.value, taskHash, deadline, maxRejections, redoWindow);
     }
 
     /**
