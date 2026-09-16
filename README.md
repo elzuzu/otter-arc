@@ -99,8 +99,6 @@ ever stranded — including by a `deadline` set absurdly far out, which `MAX_TER
 
 ---
 
-## Architecture---
-
 ## Architecture
 
 ```

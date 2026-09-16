@@ -90,7 +90,7 @@ contract ArcAgentGateway {
      *      `rejectResult` can still push `deadline` forward by up to `redoWindow`, so a fully
      *      contested escrow (`MAX_REJECTIONS` rejections, each near the current deadline, each
      *      extending it by `MAX_REDO_WINDOW`) can run for up to
-     *      `MAX_TERM + MAX_REJECTIONS * MAX_REDO_WINDOW` — about 21 months at the current
+     *      `MAX_TERM + MAX_REJECTIONS * MAX_REDO_WINDOW` — 365 + 3*30 = 455 days, about 15 months at the current
      *      constants. That is intended: it is what "try again while the deadline allows" means
      *      when taken literally, and it never overflows or strands anything.
      */
