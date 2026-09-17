@@ -198,12 +198,18 @@ The deployed contract is **not source-verified on `explorer.arc.io` yet**, so th
 shows creation bytecode rather than Solidity. Stating that is cheaper than letting a reader
 discover it.
 
-The explorer is Blockscout, but it sits behind a Cloudflare managed challenge that rejects
-non-browser clients, so `forge verify-contract --verifier blockscout` cannot reach the API — it
-gets the challenge page instead of JSON. Verification therefore has to go through the web UI:
-open the contract's **Contract** tab, click **Verify & publish**, choose **Solidity (Standard JSON
-Input)**, and upload [`contracts/standard-json-input.json`](contracts/standard-json-input.json),
-which is committed here for exactly that purpose.
+The explorer is Blockscout, and both of its doors are shut to automation. The API sits behind a
+Cloudflare managed challenge that answers non-browser clients with the challenge page instead of
+JSON, so `forge verify-contract --verifier blockscout` fails to deserialise a response it never
+received. The web form at `/address/<addr>/contract-verification` fills in fine, but its submit is
+reCAPTCHA-gated and does nothing without a token.
+
+Neither is a bug to work around — they are the explorer's bot protections doing their job. So this
+is a one-minute manual step in a real browser: open the contract's **Contract** tab, click
+**Verify & publish**, choose **Solidity (Standard JSON Input)**, set the compiler and licence to
+the values below, and upload
+[`contracts/standard-json-input.json`](contracts/standard-json-input.json), which is committed here
+for exactly that purpose.
 
 The settings it must be matched with, all readable in that file:
 
