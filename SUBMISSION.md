@@ -45,8 +45,8 @@ Solidity 0.8.33 · Foundry · viem · React 19 · Tailwind 4 · Vite
 
 ```
 App:      https://elzuzu.github.io/otter-arc/
-Contract: <FILL AFTER npm run deploy>
-Explorer: https://explorer.arc.io/address/<CONTRACT>
+Contract: 0x4704b3e740376434b05587b58e30a901f79434e4
+Explorer: https://explorer.arc.io/address/0x4704b3e740376434b05587b58e30a901f79434e4
 ```
 
 ## Public repository

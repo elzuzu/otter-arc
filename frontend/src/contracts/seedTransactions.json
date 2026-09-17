@@ -1,0 +1,26 @@
+{
+  "contractAddress": "0x4704b3e740376434b05587b58e30a901f79434e4",
+  "seededAt": "2026-09-17T05:01:32.633Z",
+  "transactions": [
+    {
+      "step": "registerService:Arc Arbitrage Sentinel",
+      "hash": "0x1f4969333a01b8f9a5c5ebee464117bfdaec91444adb820879b23ebe7d3d8383"
+    },
+    {
+      "step": "registerService:Autonomous Risk & Slippage Oracle",
+      "hash": "0xc78299719f2d68964f05120541e96f95a2a6da066f485ac6c5431d5df2b8ec1c"
+    },
+    {
+      "step": "registerService:Zero-Latency Gas Predictor",
+      "hash": "0x16e7d84689958de3a974a3275844c4d9ed9e299ff6eac6738b1054736c90d57f"
+    },
+    {
+      "step": "payForService:1",
+      "hash": "0x1ca8834540c1e6b62f7c7364bdc546582a29c253208902faa216223a290e7b2a"
+    },
+    {
+      "step": "withdraw",
+      "hash": "0x18037a7b0f8fcf5f89c270092ab07ab53155e94f419d236eba3c8f0a97c4fa11"
+    }
+  ]
+}

@@ -1,8 +1,11 @@
 {
-  "contractAddress": "",
+  "contractAddress": "0x4704b3e740376434b05587b58e30a901f79434e4",
   "chainId": 5042,
-  "deployer": "",
-  "transactionHash": "",
-  "blockNumber": "",
-  "deployedAt": ""
+  "deployer": "0xd3fb4e6479749100D876584e7F5c5cC1EEAE51A5",
+  "transactionHash": "0xd44618b65e83e1bd19621afe289a2d935c6d62b0a1bc133469b38d1f385b1b70",
+  "blockNumber": "21274816",
+  "gasUsed": "2281119",
+  "deploymentCostNative": "45622380000000000",
+  "deployedAt": "2026-09-17T05:01:14.305Z",
+  "explorer": "https://explorer.arc.io/address/0x4704b3e740376434b05587b58e30a901f79434e4"
 }
