@@ -58,18 +58,26 @@ leur échec respectif :
 |---|---|---|
 | n°2 | Le worker pouvait encaisser dans le bloc du dépôt avec un résultat vide | Machine à états `submitResult` → `releaseEscrow` / `claimSubmittedEscrow` / `refundEscrow` |
 | n°3 | `reviewDeadline = max(deadline, soumission+1h)` ≥ `deadline`, alors que `submitResult` exige `< deadline` — fenêtre où le payeur refuse mais le worker ne peut plus répondre | Un refus repousse la deadline d'au moins 1 h ; droit de refus fini, fixé à la création et lisible on-chain |
-| n°4 | Le worker prend 100 % de l'escrow avec un seul octet de déchet, quel que soit le budget de refus : il soumet `0x00`, encaisse les N refus, la (N+1)ᵉ soumission est irrefusable | **Ouvert** |
+| n°4 | Le worker prend 100 % de l'escrow avec un seul octet de déchet, quel que soit le budget de refus : il soumet `0x00`, encaisse les N refus, la (N+1)ᵉ soumission est irrefusable | **Fermée** — un budget de refus épuisé ne donne plus le tout au worker mais déclenche un partage, couvert par `test_Regression_JunkCannotWinTheWholeEscrow`, `test_Regression_SplitRequiresExhaustedBudget` et `testFuzz_SplitAlwaysSumsToTheEscrowAmount` |
 
-Deux autres contradictions de la revue n°4 restent ouvertes : `createEscrow` accepte
-`deadline = type(uint256).max`, ce qui gèle l'escrow à jamais alors que le README promet « no escrow
-is ever stranded » ; et un refus tardif ramène la fenêtre du worker à 1 h quel que soit le terme
-initial, offrant au payeur une option gratuite sur un travail déjà livré et public dans le calldata.
+Les deux autres contradictions de la revue n°4 sont fermées elles aussi. `createEscrow` bornait
+`deadline` par rien : il exige désormais `deadline <= block.timestamp + MAX_TERM` (365 jours),
+vérifié par `test_Regression_DeadlineIsCapped`. Et un refus tardif ne ramène plus la fenêtre du
+worker à 1 h : `createEscrow` prend un `redoWindow` fixé à la création, borné par
+`MAX_REDO_WINDOW` (30 jours), donc la durée maximale d'un escrow pleinement contesté est
+`MAX_TERM + MAX_REJECTIONS * MAX_REDO_WINDOW` = 455 jours ; voir
+`test_Regression_RedoWindowCannotBeCollapsedByLateRejection` et
+`test_Regression_RedoWindowIsBounded`.
 
-Repères mesurés : 30/30 tests verts dont 4 régressions issues des PoC de revue, `forge fmt` propre,
-10/10 liens joignables, déploiement 2 110 584 gas (propriété du bytecode, reproductible). Le prix du
-gas sur Arc est très instable — 20 → 225 gwei en une session — donc mesurer le prix au moment du
-déploiement plutôt que se fier à un chiffre gravé. Le site est en ligne sur
-`https://elzuzu.github.io/otter-arc/`.
+Repères mesurés le 2026-09-17, tous relus à cette date : **36/36 tests verts** dont 20 régressions
+issues des PoC de revue et 2 campagnes de fuzz, `forge fmt` propre, **13/13 liens joignables**.
+Le contrat est déployé et source-vérifiée à `0x4704b3e740376434b05587b58e30a901f79434e4`,
+bloc 21274816, **2 281 119 gas réellement consommés** (lus sur le reçu de
+`0xd44618b6…5b1b70`, et non estimés). Le prix du gas sur Arc est très instable — 20 → 225 gwei en
+une session — donc mesurer le prix au moment du déploiement plutôt que se fier à un chiffre gravé.
+Le site est en ligne sur `https://elzuzu.github.io/otter-arc/`, publié à la main par
+`npm run publish-site` : les GitHub Actions de ce dépôt sont coupées par un verrou de facturation,
+donc **un push sur `main` ne met pas le site à jour**.
 
 `npm run verify-deployment` relit le déploiement depuis la chaîne à partir de la seule adresse
-(22 contrôles) et échoue correctement sur une adresse sans code ou un contrat non amorcé.
+(29 contrôles) et échoue correctement sur une adresse sans code ou un contrat non amorcé.
