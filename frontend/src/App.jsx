@@ -48,6 +48,29 @@ const MAX_SERVICES_RENDERED = 24;
 const REVIEW_WINDOW_SECONDS = 3600;
 
 /** A funded Arc validator, used to demonstrate the decimal relationship before you connect. */
+/**
+ * Retry a read a few times before surfacing an error.
+ *
+ * The registry and the proof panel each read once on mount. Without this, a single transient RPC
+ * failure — a sleeping laptop, a network switch, a rate-limited endpoint — latched an error string
+ * into the panel permanently, because nothing ever read again. The header kept polling and
+ * recovered, so the page looked live while the panel below it stayed broken.
+ */
+async function withRetry(fn, attempts = 3) {
+  let lastError;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 400 * 3 ** i));
+      }
+    }
+  }
+  throw lastError;
+}
+
 const SAMPLE_ADDRESS = '0x5ACCC00D7e4dB975CCbfC2801bC9447f37198797';
 
 export default function App() {
@@ -84,6 +107,9 @@ export default function App() {
   // ---------------------------------------------------------------- chain head
 
   const fetchHead = useCallback(async () => {
+    // A backgrounded tab left open for a day would otherwise fire ~21k requests at the public RPC
+    // and eventually be rate-limited.
+    if (typeof document !== 'undefined' && document.hidden) return;
     try {
       const start = Date.now();
       const [block, price] = await Promise.all([
@@ -109,16 +135,16 @@ export default function App() {
   const loadServices = useCallback(async () => {
     if (!contractAddress) return;
     try {
-      const count = await publicClient.readContract({
+      const count = await withRetry(() => publicClient.readContract({
         address: contractAddress, abi, functionName: 'getServiceCount',
-      });
+      }));
       const shown = Math.min(Number(count), MAX_SERVICES_RENDERED);
       const ids = Array.from({ length: shown }, (_, i) => BigInt(i + 1));
       setServiceCount(Number(count));
       const rows = await Promise.all(
-        ids.map((id) => publicClient.readContract({
+        ids.map((id) => withRetry(() => publicClient.readContract({
           address: contractAddress, abi, functionName: 'services', args: [id],
-        }))
+        })))
       );
       setServices(rows.map((r) => ({
         id: r[0], provider: r[1], name: r[2], endpoint: r[3],
@@ -143,8 +169,8 @@ export default function App() {
     }
     try {
       const [native, erc20] = await Promise.all([
-        publicClient.getBalance({ address }),
-        publicClient.readContract({ address: USDC_ERC20, abi: USDC_ABI, functionName: 'balanceOf', args: [address] }),
+        withRetry(() => publicClient.getBalance({ address })),
+        withRetry(() => publicClient.readContract({ address: USDC_ERC20, abi: USDC_ABI, functionName: 'balanceOf', args: [address] })),
       ]);
       setProof({ address, native, erc20, remainder: native % SCALE, matches: native / SCALE === erc20 });
       setProofError(null);
@@ -155,6 +181,28 @@ export default function App() {
   }, []);
 
   useEffect(() => { loadProof(SAMPLE_ADDRESS); }, [loadProof]);
+
+  /**
+   * Recover the one-shot reads when the tab comes back to the foreground.
+   *
+   * Retries cover a blip of a few seconds; this covers the rest — a machine that was asleep, or
+   * offline, while the page was loading. Only panels currently showing an error are re-read, so
+   * returning to a healthy tab costs nothing.
+   */
+  useEffect(() => {
+    if (!servicesError && !proofError) return undefined;
+    const retryVisible = () => {
+      if (document.hidden) return;
+      if (servicesError) loadServices();
+      if (proofError) loadProof(proofAddress || SAMPLE_ADDRESS);
+    };
+    document.addEventListener('visibilitychange', retryVisible);
+    window.addEventListener('online', retryVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', retryVisible);
+      window.removeEventListener('online', retryVisible);
+    };
+  }, [servicesError, proofError, proofAddress, loadServices, loadProof]);
 
   // ------------------------------------------------------------------ wallet
 
