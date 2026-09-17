@@ -74,6 +74,16 @@ The form has a required free-text `Team information` field. The text is kept ver
 [`docs/buidl-team-information.txt`](docs/buidl-team-information.txt) so it is reviewable in the
 repository rather than existing only inside a web form.
 
+## Demo video
+
+[`docs/arcpay-demo.webm`](docs/arcpay-demo.webm) — 55 seconds, 1.0 MB, 1280x578. A silent screen
+capture of the live dashboard at `elzuzu.github.io/otter-arc`: the on-chain service registry, the
+escrow panel, then the decimals proof reading a real Arc address both ways and showing the `1e12`
+relationship hold. Every number in it is read from Arc mainnet at capture time, not mocked.
+
+It is a screen recording, not a narrated walkthrough — the BUIDL form treats the video as optional
+and this is offered for what it is.
+
 ## Cover image
 
 Upload [`docs/buidl-cover.png`](docs/buidl-cover.png) — 1200x630, the ratio DoraHacks renders a
