@@ -3,9 +3,12 @@
 > Native-USDC pay-per-call and autonomous escrow rails for AI agents, targeting **Arc Mainnet
 > (Chain ID 5042)** — with correct handling of Arc's two USDC representations.
 >
-> **Deployment status:** the contract address, once deployed, is written to
+> **Live on Arc Mainnet** at
+> [`0x4704b3e740376434b05587b58e30a901f79434e4`](https://explorer.arc.io/address/0x4704b3e740376434b05587b58e30a901f79434e4),
+> deployed in block #21274816. The address is recorded in
 > [`frontend/src/contracts/deployedAddress.json`](frontend/src/contracts/deployedAddress.json) and
-> linked here. While that file is empty, nothing is deployed yet.
+> read from there by the dashboard. `npm run verify-deployment` re-derives every claim below from
+> the chain using nothing but that address.
 > Built for the [Arc Microgrants program](https://community.arc.io/public/events/arc-microgrants-f8tijfjhyq).
 
 ---
@@ -181,8 +184,11 @@ curl -s https://rpc.mainnet.arc.io -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","method":"eth_gasPrice","params":[],"id":1}'
 ```
 
-Nothing has been deployed yet, so every figure above is an estimate from the chain rather than a
-measurement of a past transaction.
+The deployment has since happened, so the figures above can be checked against a real transaction
+rather than an estimate. It cost **2,281,119 gas at 20 gwei = 0.04562238 USDC** in block #21274816,
+for 10,204 bytes of runtime code. The gas differs from the 2,110,584 quoted above because the
+contract grew between that estimate and the deployment; the point stands either way — quote the
+gas, read the price yourself.
 
 ### Frontend
 
