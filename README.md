@@ -172,7 +172,8 @@ and the same predeploys.
 
 `npm run deploy` prices the deployment before spending anything and refuses to broadcast unless
 the balance covers three times the estimate. `eth_estimateGas` against Arc Mainnet for the current
-bytecode returns **2,110,584 gas** — that part is a property of the bytecode and reproducible.
+bytecode returns **2,300,390 gas** — that part is a property of the bytecode and reproducible, so
+run it yourself rather than trusting the number here.
 
 The *price* is not. Arc mainnet opened on 16 September 2026 and `eth_gasPrice` moved between
 **20 and 225 gwei** within a few hours of this being written, which is the difference between a
@@ -186,9 +187,10 @@ curl -s https://rpc.mainnet.arc.io -H 'Content-Type: application/json' \
 
 The deployment has since happened, so the figures above can be checked against a real transaction
 rather than an estimate. It cost **2,281,119 gas at 20 gwei = 0.04562238 USDC** in block #21274816,
-for 10,204 bytes of runtime code. The gas differs from the 2,110,584 quoted above because the
-contract grew between that estimate and the deployment; the point stands either way — quote the
-gas, read the price yourself.
+for 10,204 bytes of runtime code — slightly under the 2,300,390 estimate above, as an estimate
+should be. An earlier revision of this README quoted 2,110,584 for a smaller version of the
+contract; the escrow gained `splitEscrow` and the bounded-rejection machinery after that, and the
+figure was not revisited. Hence the standing advice: run `eth_estimateGas` yourself.
 
 ### Frontend
 

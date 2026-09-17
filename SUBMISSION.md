@@ -139,11 +139,13 @@ its balance both ways, see the `1e12` factor and the truncated remainder.
   `claimSubmittedEscrow` / `refundEscrow` / `splitEscrow` form a state machine sized to close two
   successive full-escrow exploits found by adversarial review — one favoring the worker, the
   inverse favoring the payer — without pretending an on-chain contract can judge work quality.
-- **Cheap enough for per-call pricing.** `eth_estimateGas` on live Arc returns **2,110,584 gas**
-  for this bytecode. The price is another matter: mainnet is days old and `eth_gasPrice` moved
-  between **20 and 225 gwei** while this was being written, i.e. 0.042 to 0.47 USDC for the same
-  deployment. A service call is a fraction of that either way. We quote the gas, which is
-  reproducible, and tell the reader to read the price themselves.
+- **Cheap enough for per-call pricing.** The deployment is a measurement, not a projection: it
+  consumed **2,281,119 gas at 20 gwei — 0.04562238 USDC** in block #21274816, against a
+  `eth_estimateGas` quote of 2,300,390 for the same bytecode. The price is the volatile part:
+  mainnet is days old and `eth_gasPrice` moved between **20 and 225 gwei** while this was being
+  written, i.e. 0.046 to 0.52 USDC for the identical deployment. A service call is a fraction of
+  that either way. We quote the gas, which is reproducible, and tell the reader to read the price
+  themselves.
 - **Arc's actual predeploy topology.** `0x3600…0000` is a proxy; `totalSupply()` routes to an Arc
   precompile at `0x1800…0000` that holds no bytecode and that a local EVM rejects with
   `OpcodeNotFound`. Our fork test reads that one value over RPC instead. Documented in the README
