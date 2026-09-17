@@ -192,40 +192,35 @@ should be. An earlier revision of this README quoted 2,110,584 for a smaller ver
 contract; the escrow gained `splitEscrow` and the bounded-rejection machinery after that, and the
 figure was not revisited. Hence the standing advice: run `eth_estimateGas` yourself.
 
-### Verifying the source on the explorer
+### Source verification on the explorer
 
-The deployed contract is **not source-verified on `explorer.arc.io` yet**, so the Contract tab
-shows creation bytecode rather than Solidity. Stating that is cheaper than letting a reader
-discover it.
-
-The explorer is Blockscout, and both of its doors are shut to automation. The API sits behind a
-Cloudflare managed challenge that answers non-browser clients with the challenge page instead of
-JSON, so `forge verify-contract --verifier blockscout` fails to deserialise a response it never
-received. The web form at `/address/<addr>/contract-verification` fills in fine, but its submit is
-reCAPTCHA-gated and does nothing without a token.
-
-Neither is a bug to work around — they are the explorer's bot protections doing their job. So this
-is a one-minute manual step in a real browser: open the contract's **Contract** tab, click
-**Verify & publish**, choose **Solidity (Standard JSON Input)**, set the compiler and licence to
-the values below, and upload
-[`contracts/standard-json-input.json`](contracts/standard-json-input.json), which is committed here
-for exactly that purpose.
-
-The settings it must be matched with, all readable in that file:
+The deployed contract is **source-verified on `explorer.arc.io`** — the Contract tab shows
+`ArcAgentGateway` with a green "verified (exact match)" badge and a working Read/Write contract
+panel, rather than raw creation bytecode.
 
 | | |
 |---|---|
 | Compiler | `v0.8.33+commit.64118f21` |
 | Optimizer | enabled, 200 runs |
 | EVM version | `prague` |
+| License | MIT |
 | Constructor args | none |
+| Verified at | 17 September 2026, 08:21:03 |
 
-Regenerate the file after any change to the contract:
+It was submitted through the Blockscout web form at
+`/address/<addr>/contract-verification` with
+[`contracts/standard-json-input.json`](contracts/standard-json-input.json), which is committed here
+so the result is reproducible. Regenerate that file after any change to the contract:
 
 ```bash
 cd contracts && forge verify-contract 0x4704b3e740376434b05587b58e30a901f79434e4 \
   src/ArcAgentGateway.sol:ArcAgentGateway --show-standard-json-input > standard-json-input.json
 ```
+
+`forge verify-contract --verifier blockscout` does **not** work against this explorer: its API sits
+behind a Cloudflare managed challenge that answers non-browser clients with the challenge page
+instead of JSON, so the verifier fails to deserialise a response it never received. Use the web
+form.
 
 ### Frontend
 
