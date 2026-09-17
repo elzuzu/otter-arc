@@ -1,0 +1,4 @@
+# GitHub has no field for a chain address, and `custom` takes URLs only — so this points at the
+# address on the Arc explorer rather than at a payment page. Opening it shows the wallet that paid
+# for this project's deployments, with every transaction that did so.
+custom: ["https://explorer.arc.io/address/0xd3fb4e6479749100D876584e7F5c5cC1EEAE51A5"]

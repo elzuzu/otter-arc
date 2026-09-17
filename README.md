@@ -302,3 +302,11 @@ code, and at a deployed-but-unseeded contract.
 ## License
 
 MIT © 2026 OtterArc
+
+## Who paid for this, and where
+
+Everything here was deployed from **`0xd3fb4e6479749100D876584e7F5c5cC1EEAE51A5`** on Arc Mainnet — [see it on the explorer](https://explorer.arc.io/address/0xd3fb4e6479749100D876584e7F5c5cC1EEAE51A5). ArcPay cost **0.045622 USDC** (2,281,119 gas) to deploy, and the transaction that did it is in that wallet's history.
+
+The address is published because it makes the claim checkable, not because anything is expected from it. If you find this useful and want to send something back, native USDC to that address arrives directly — it is the same wallet, and it funds the next deployment. There is no expectation either way.
+
+Two honest notes. This wallet also holds the operating balance and pays for deployments, so a donation is not held separately; at this scale that is a simplicity, not a policy. And the balance is public, so you can see exactly what arrives and what it is spent on.
