@@ -1,0 +1,7 @@
+**USDC is the gas token**, so settlement is a bare `msg.value` transfer: no ERC-20 approval, no allowance surface, one transaction instead of two.
+
+**Arc exposes one balance twice.** Native (`msg.value`, `eth_getBalance`) carries 18 decimals; the USDC ERC-20 predeploy `0x3600…0000` reports the same balance with 6, related by exactly 1e12. Assuming 6 for the native asset overstates every balance by a trillion — silently, nothing reverts. `ArcDecimals` converts explicitly, a fork test asserts `floor(native/1e12) == balanceOf` against live Arc on every run, and a UI panel proves it for any address you paste.
+
+**Measured, not projected:** deployment took 2,281,119 gas at 20 gwei = 0.04562238 USDC, block #21274816.
+
+**A trap we documented:** `0x3600…0000` is a proxy, and `totalSupply()` routes to a bytecode-less precompile at `0x1800…0000` that a local EVM rejects with `OpcodeNotFound`. Our fork test reads that one value over RPC.

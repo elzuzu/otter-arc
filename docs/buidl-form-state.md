@@ -47,6 +47,24 @@ Alex's own details, not recorded here.
 
 Then "I agree to the Terms of Use Agreement", then **Submit for Review**.
 
+## The hackathon entry form (separate from the wizard)
+
+Reached from the hackathon page: Submit BUIDL -> Use existing BUIDL -> ArcPay. Track is
+`All BUIDLs`, the only option. Its questions are answered from
+[`../SUBMISSION.md`](../SUBMISSION.md), with one exception.
+
+**"What does it use Arc for?" is capped at 960 characters**, and the cap is enforced only on
+submit -- the input declares no `maxLength`, so an over-long answer types in fine and is rejected
+at the end. The section in `SUBMISSION.md` runs to 1,930 characters, so the form carries a
+939-character condensation kept verbatim in
+[`buidl-arc-usage-960.txt`](buidl-arc-usage-960.txt). The escrow paragraph was dropped rather than
+trimmed everywhere: it is the least Arc-specific of the five, and the question asks what the
+project uses *Arc* for. `SUBMISSION.md` keeps the full answer.
+
+Two dropdowns worth reading carefully: "Had you deployed to Arc before this project?" offers
+**Mainnet / Testnet / No** -- it is not a yes/no -- and there is a separate Circle/Arc grant
+question.
+
 ## Two traps on this form
 
 **The contact fields are not enforced client-side.** `required` is false on the Telegram input, the
