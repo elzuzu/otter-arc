@@ -17,6 +17,10 @@ Everything below is written to be pasted into the DoraHacks BUIDL form.
 
 ---
 
+The exact values entered in each step of the wizard are recorded in
+[`docs/buidl-form-state.md`](docs/buidl-form-state.md), because the draft lives only in the open
+browser tab until it is submitted.
+
 ## How to actually submit — two steps, not one
 
 DoraHacks has two flows that look like one, and taking only the first enters nothing.
