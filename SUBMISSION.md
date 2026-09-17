@@ -17,6 +17,23 @@ Everything below is written to be pasted into the DoraHacks BUIDL form.
 
 ---
 
+## How to actually submit — two steps, not one
+
+DoraHacks has two flows that look like one, and taking only the first enters nothing.
+
+Creating a BUIDL from the header "+" menu builds a **standalone project**: Profile / Details /
+Team / Contact, then "Submit for Review". That publishes the project and enters it into no
+competition. Entering Arc Microgrants is a separate second step, from the hackathon page:
+**Submit BUIDL -> Use existing BUIDL -> pick ArcPay -> select the track -> submit.** The track
+selector is the tell; a wizard that never asks for a track is not the hackathon flow.
+
+How to check which state you are in, without clicking anything: the hackathon page button reads
+**"Submit BUIDL"** while you are not entered, and flips to **"Manage Submission"** once you are.
+Its BUIDLs tab lists nothing of yours until then.
+
+All the content carries over — "Use existing BUIDL" reuses the logo, description, team information
+and tags, so there is never a reason to build a second draft.
+
 ## Project name
 
 ```
