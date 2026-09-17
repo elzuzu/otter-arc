@@ -576,6 +576,9 @@ export default function App() {
                     </div>
                     <h3 className="text-base font-semibold text-white group-hover:text-blue-400 transition">{svc.name}</h3>
                     <p className="text-[11px] text-slate-500 mt-2 font-mono break-all">{svc.endpoint}</p>
+                    <p className="text-[10px] text-slate-600 mt-1 leading-snug">
+                      provider-declared endpoint — stored verbatim, validated by nothing on chain
+                    </p>
                     <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] font-mono">
                       <div className="bg-slate-950/60 border border-slate-800 rounded-lg px-2 py-1.5">
                         <div className="text-slate-500">calls</div>

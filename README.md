@@ -68,6 +68,15 @@ on Arc the stablecoin *is* the gas token. The third argument is the highest fee 
 so a provider cannot raise the price in front of the transaction and keep the whole `msg.value`.
 Overpayment is credited back to the caller's claimable balance.
 
+> **A registry stores strings, and cannot vouch for them — including ours.** `registerService`
+> takes an `endpoint` and writes it verbatim; `updateService` can change the fee and the active
+> flag but *not* the endpoint, which is immutable once registered. The three demo services seeded
+> on the live deployment were registered pointing at `agents.arcpay.dev`, a host this project does
+> not own and which answers 404. That cannot be corrected on chain, so it is documented here
+> instead: read the endpoint of any service in this or any other registry as a claim by its
+> provider, never as something the contract checked. `scripts/seed-services.mjs` now seeds URLs
+> that resolve, and the dashboard labels the field for what it is.
+
 **2. Autonomous micro-escrow.** `createEscrow` locks native USDC against a task hash, a
 deadline (at most `MAX_TERM`, one year), a **number of rejections the payer reserves** (at most
 `MAX_REJECTIONS`), and a **redo window** the worker gets after each rejection (between

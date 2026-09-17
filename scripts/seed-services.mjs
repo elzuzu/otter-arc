@@ -16,21 +16,29 @@ dotenv.config();
 
 const fmt = (wei) => `${formatUnits(wei, NATIVE_DECIMALS)} USDC`;
 
-/** Fees in native units (18 decimals). 1e15 == 0.001 USDC. */
+/**
+ * Fees in native units (18 decimals). 1e15 == 0.001 USDC.
+ *
+ * `endpoint` is a provider-supplied string. The contract stores it verbatim and validates
+ * nothing about it — it cannot, and no on-chain registry can. These demo entries therefore point
+ * at a page we actually control and that actually resolves, rather than at a plausible-looking
+ * API host we do not own. An unreachable URL in a registry is indistinguishable from a live one
+ * until someone tries it, which is exactly the failure a reader should not have to discover.
+ */
 const SERVICES = [
   {
     name: 'Arc Arbitrage Sentinel',
-    endpoint: 'https://agents.arcpay.dev/v1/arbitrage-sentinel',
+    endpoint: 'https://elzuzu.github.io/otter-arc/#arbitrage-sentinel',
     fee: 10_000_000_000_000_000n, // 0.01 USDC
   },
   {
     name: 'Autonomous Risk & Slippage Oracle',
-    endpoint: 'https://agents.arcpay.dev/v1/slippage-oracle',
+    endpoint: 'https://elzuzu.github.io/otter-arc/#slippage-oracle',
     fee: 5_000_000_000_000_000n, // 0.005 USDC
   },
   {
     name: 'Zero-Latency Gas Predictor',
-    endpoint: 'https://agents.arcpay.dev/v1/gas-predictor',
+    endpoint: 'https://elzuzu.github.io/otter-arc/#gas-predictor',
     fee: 2_000_000_000_000_000n, // 0.002 USDC
   },
 ];
