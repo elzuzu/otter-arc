@@ -192,6 +192,35 @@ should be. An earlier revision of this README quoted 2,110,584 for a smaller ver
 contract; the escrow gained `splitEscrow` and the bounded-rejection machinery after that, and the
 figure was not revisited. Hence the standing advice: run `eth_estimateGas` yourself.
 
+### Verifying the source on the explorer
+
+The deployed contract is **not source-verified on `explorer.arc.io` yet**, so the Contract tab
+shows creation bytecode rather than Solidity. Stating that is cheaper than letting a reader
+discover it.
+
+The explorer is Blockscout, but it sits behind a Cloudflare managed challenge that rejects
+non-browser clients, so `forge verify-contract --verifier blockscout` cannot reach the API — it
+gets the challenge page instead of JSON. Verification therefore has to go through the web UI:
+open the contract's **Contract** tab, click **Verify & publish**, choose **Solidity (Standard JSON
+Input)**, and upload [`contracts/standard-json-input.json`](contracts/standard-json-input.json),
+which is committed here for exactly that purpose.
+
+The settings it must be matched with, all readable in that file:
+
+| | |
+|---|---|
+| Compiler | `v0.8.33+commit.64118f21` |
+| Optimizer | enabled, 200 runs |
+| EVM version | `prague` |
+| Constructor args | none |
+
+Regenerate the file after any change to the contract:
+
+```bash
+cd contracts && forge verify-contract 0x4704b3e740376434b05587b58e30a901f79434e4 \
+  src/ArcAgentGateway.sol:ArcAgentGateway --show-standard-json-input > standard-json-input.json
+```
+
 ### Frontend
 
 ```bash
