@@ -41,6 +41,13 @@ Arc, USDC, agentic payments, micro-payments, escrow, Solidity, infrastructure
 Solidity 0.8.33 · Foundry · viem · React 19 · Tailwind 4 · Vite
 ```
 
+## Cover image
+
+Upload [`docs/buidl-cover.png`](docs/buidl-cover.png) — 1200x630, the ratio DoraHacks renders a
+BUIDL card at. The two figures on it are a real Arc validator balance read from the live chain,
+shown through both representations; [`docs/buidl-cover.html`](docs/buidl-cover.html) regenerates it
+if the numbers should be refreshed.
+
 ## Live deployment on Arc mainnet
 
 ```

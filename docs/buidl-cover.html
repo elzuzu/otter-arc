@@ -1,0 +1,76 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    width:1200px; height:630px; background:#07090E;
+    font-family:'Inter',-apple-system,sans-serif; color:#e2e8f0;
+    display:flex; flex-direction:column; justify-content:space-between;
+    padding:64px 72px; position:relative; overflow:hidden;
+  }
+  .glow { position:absolute; top:-320px; left:50%; transform:translateX(-50%);
+    width:1100px; height:620px; border-radius:50%;
+    background:radial-gradient(ellipse at center, rgba(37,99,235,.22), transparent 70%); }
+  .row { display:flex; align-items:center; gap:18px; position:relative; }
+  .mark { width:56px; height:56px; border-radius:16px;
+    background:linear-gradient(135deg,#2563eb,#6366f1);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 8px 32px rgba(37,99,235,.35); }
+  .mark svg { width:28px; height:28px; }
+  h1 { font-size:46px; font-weight:700; letter-spacing:-1.2px; color:#fff; }
+  .pill { font-size:13px; font-weight:600; color:#60a5fa; padding:5px 13px;
+    border:1px solid rgba(96,165,250,.32); border-radius:999px;
+    background:rgba(37,99,235,.10); letter-spacing:.2px; }
+  .tag { font-size:20px; color:#94a3b8; margin-top:14px; line-height:1.45; max-width:850px; }
+  .proof { position:relative; display:flex; align-items:stretch; gap:20px; }
+  .card { flex:1; background:rgba(15,23,42,.62); border:1px solid rgba(51,65,85,.85);
+    border-radius:18px; padding:24px 26px; }
+  .card .lbl { font-family:'JetBrains Mono',monospace; font-size:12px; color:#64748b;
+    text-transform:uppercase; letter-spacing:1.1px; }
+  .card .val { font-family:'JetBrains Mono',monospace; font-size:23px; font-weight:700;
+    color:#34d399; margin-top:11px; letter-spacing:-.5px; }
+  .card .sub { font-family:'JetBrains Mono',monospace; font-size:12px; color:#475569; margin-top:8px; }
+  .rel { display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:0 4px; min-width:104px; }
+  .rel .x { font-family:'JetBrains Mono',monospace; font-size:24px; font-weight:700; color:#60a5fa; }
+  .rel .t { font-size:11px; color:#64748b; margin-top:6px; text-align:center; line-height:1.35; }
+  .foot { display:flex; justify-content:space-between; align-items:flex-end; position:relative; }
+  .foot .l { font-family:'JetBrains Mono',monospace; font-size:14px; color:#64748b; line-height:1.7; }
+  .foot .l b { color:#94a3b8; font-weight:700; }
+  .foot .r { font-size:13px; color:#475569; text-align:right; line-height:1.7; }
+</style></head><body>
+  <div class="glow"></div>
+
+  <div>
+    <div class="row">
+      <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4"
+        stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+      <h1>ArcPay</h1>
+      <span class="pill">Agentic Gateway</span>
+    </div>
+    <div class="tag">Native-USDC pay-per-call and autonomous escrow rails for AI agents on Arc — built around the one thing most day-one integrations get wrong.</div>
+  </div>
+
+  <div class="proof">
+    <div class="card">
+      <div class="lbl">native gas asset · 18 decimals</div>
+      <div class="val">21917.069844868257255096</div>
+      <div class="sub">msg.value · eth_getBalance</div>
+    </div>
+    <div class="rel">
+      <div class="x">÷ 1e12</div>
+      <div class="t">same balance,<br>two views</div>
+    </div>
+    <div class="card">
+      <div class="lbl">USDC ERC-20 · 6 decimals</div>
+      <div class="val">21917.069844</div>
+      <div class="sub">balanceOf · 0x3600…0000</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="l"><b>Live on Arc Mainnet</b> · chain 5042 · gas paid in USDC<br>
+      <b>0x4704b3e7…79434e4</b> · 36 tests, 4 forked against the live chain</div>
+    <div class="r">github.com/elzuzu/otter-arc<br>elzuzu.github.io/otter-arc</div>
+  </div>
+</body></html>
