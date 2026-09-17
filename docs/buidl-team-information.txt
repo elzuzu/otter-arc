@@ -1,0 +1,7 @@
+Solo builder — github.com/elzuzu. No team, no co-founders, no prior Arc or Circle funding for this work.
+
+ArcPay was built in the days immediately after Arc mainnet opened on 16 September 2026. Everything is in the public repository: the gateway contract, the ArcDecimals 18/6 conversion library, the fork tests that assert against the live chain on every run, the React dashboard, and the deployment and verification scripts.
+
+The commit history is the honest record of how it got there, and it is not a flattering one throughout. The project's original headline claim — that Arc's native asset uses 6 decimals — was simply false, and rewriting the project around the verified 18/6 dual representation is what produced the thing being submitted. Three rounds of adversarial review rebuilt the escrow from scratch each time, converging on a stated limit rather than a clever fix: an unbounded two-party reject loop always hands one side a dominant strategy, so the contract bounds the damage instead of pretending to judge work quality. One defect was found too late to fix — the demo services were registered with endpoints on a domain the project does not own, and the endpoint field is immutable once registered — so it is documented in the README rather than quietly corrected.
+
+Development was AI-assisted using Claude Code; commits carry Co-Authored-By trailers where that applies. Every figure in this submission was measured against the live chain rather than asserted, and `npm run verify-deployment` re-derives all of them from the contract address alone.

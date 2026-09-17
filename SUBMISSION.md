@@ -41,6 +41,18 @@ Arc, USDC, agentic payments, micro-payments, escrow, Solidity, infrastructure
 Solidity 0.8.33 · Foundry · viem · React 19 · Tailwind 4 · Vite
 ```
 
+## Logo (square, 480x480)
+
+The DoraHacks BUIDL form has a single image slot labelled "BUIDL logo", recommends 480x480 and
+centre-crops anything wider. Upload [`docs/buidl-logo.png`](docs/buidl-logo.png) there —
+[`docs/buidl-logo.html`](docs/buidl-logo.html) regenerates it.
+
+## Team information
+
+The form has a required free-text `Team information` field. The text is kept verbatim in
+[`docs/buidl-team-information.txt`](docs/buidl-team-information.txt) so it is reviewable in the
+repository rather than existing only inside a web form.
+
 ## Cover image
 
 Upload [`docs/buidl-cover.png`](docs/buidl-cover.png) — 1200x630, the ratio DoraHacks renders a

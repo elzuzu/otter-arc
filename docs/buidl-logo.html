@@ -1,0 +1,30 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@600;700;800&family=JetBrains+Mono:wght@700&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { width:480px; height:480px; background:#07090E; overflow:hidden;
+    font-family:'Inter',-apple-system,sans-serif; position:relative;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; }
+  .glow { position:absolute; top:-140px; left:50%; transform:translateX(-50%);
+    width:520px; height:380px; border-radius:50%;
+    background:radial-gradient(ellipse at center, rgba(37,99,235,.30), transparent 70%); }
+  .mark { width:132px; height:132px; border-radius:36px; position:relative;
+    background:linear-gradient(135deg,#2563eb,#6366f1);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 16px 48px rgba(37,99,235,.42); }
+  .mark svg { width:70px; height:70px; }
+  h1 { font-size:52px; font-weight:800; letter-spacing:-1.6px; color:#fff; position:relative; }
+  .ratio { position:relative; display:flex; align-items:center; gap:11px;
+    font-family:'JetBrains Mono',monospace; font-weight:700; }
+  .n { font-size:30px; color:#34d399; }
+  .div { font-size:17px; color:#60a5fa; letter-spacing:.5px; }
+  .sub { position:relative; font-size:13px; color:#64748b; letter-spacing:2.6px;
+    text-transform:uppercase; font-weight:600; }
+</style></head><body>
+  <div class="glow"></div>
+  <div class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4"
+    stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+  <h1>ArcPay</h1>
+  <div class="ratio"><span class="n">18</span><span class="div">÷ 1e12</span><span class="n">6</span></div>
+  <div class="sub">Native USDC on Arc</div>
+</body></html>
